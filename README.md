@@ -235,6 +235,7 @@ Cardano has invested deeply in African identity initiatives; YoTouch extends tha
 * Capture selfie + liveness
 * Display verification score
 * Show blockchain proof
+* Digital Address proof Badge
 
 ### **Backend (Node.js + Express + PostgreSQL)**
 
@@ -247,7 +248,6 @@ Cardano has invested deeply in African identity initiatives; YoTouch extends tha
 
 * Face embeddings
 * Liveness checks
-* Document OCR
 
 ### **Cardano Smart Contract**
 
@@ -283,7 +283,7 @@ Cardano has invested deeply in African identity initiatives; YoTouch extends tha
 
 ### ✔ Proof-of-Residence (PoR) for local governance
 
-YoTouch introduces digital identity where formal systems are weak — but without excluding existing national systems.
+YoTouch introduces digital identity and Address proof where formal systems are weak — but without excluding existing national systems.
 
 ---
 

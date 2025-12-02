@@ -1,6 +1,14 @@
 use aiken/list
 use aiken/std::{script_context}
 
+
+pub type VerificationDatum {
+  applicant_hash: ByteArray,
+  score: Int,
+  nin: ByteArray,
+  bvn: ByteArray,
+}
+
 pub type VerificationRedeemer {
   Submit {
     applicant_hash: ByteArray,

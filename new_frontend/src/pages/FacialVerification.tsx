@@ -4,10 +4,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Progress } from '@/components/ui/progress';
-import * as faceapi from 'face-api.js';
 
-// Model URL - should point to your public/models folder
-const MODEL_URL = '/models';
+// Use CDN models instead of local files to avoid loading issues
+const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
 const MAX_FILE_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 const DISTANCE_THRESHOLD = 0.6;
 const LIVENESS_DURATION_MS = 3000;
@@ -19,6 +18,13 @@ interface VerificationResult {
   livenessSuccess: boolean;
 }
 
+// Declare faceapi as global
+declare global {
+  interface Window {
+    faceapi: any;
+  }
+}
+
 const FacialVerification: React.FC = () => {
   // Refs
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -26,6 +32,7 @@ const FacialVerification: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // State
+  const [faceApiLoaded, setFaceApiLoaded] = useState(false);
   const [modelsLoaded, setModelsLoaded] = useState(false);
   const [cameraActive, setCameraActive] = useState(false);
   const [idPhotoPreview, setIdPhotoPreview] = useState<string | null>(null);
@@ -47,9 +54,39 @@ const FacialVerification: React.FC = () => {
   // Detection interval
   const detectionIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load face-api models on mount
+  // Load face-api.js library dynamically
   useEffect(() => {
-    loadModels();
+    const loadFaceApiScript = () => {
+      return new Promise((resolve, reject) => {
+        if (window.faceapi) {
+          resolve(true);
+          return;
+        }
+
+        const script = document.createElement('script');
+        script.src = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js';
+        script.async = true;
+        script.onload = () => {
+          console.log('✅ Face-API script loaded');
+          resolve(true);
+        };
+        script.onerror = () => {
+          reject(new Error('Failed to load face-api.js library'));
+        };
+        document.body.appendChild(script);
+      });
+    };
+
+    loadFaceApiScript()
+      .then(() => {
+        setFaceApiLoaded(true);
+        loadModels();
+      })
+      .catch((err) => {
+        setError(`Failed to load face-api.js: ${err.message}`);
+        setModelStatus('Script loading failed');
+      });
+
     return () => {
       // Cleanup
       if (detectionIntervalRef.current) {
@@ -61,21 +98,20 @@ const FacialVerification: React.FC = () => {
 
   const loadModels = async () => {
     try {
-      setModelStatus('Loading AI models...');
+      setModelStatus('Loading AI models from CDN...');
+      const faceapi = window.faceapi;
       
-      await Promise.all([
-        faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-        faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-        faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-      ]);
+      await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+      await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+      await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
       
       setModelsLoaded(true);
-      setModelStatus('Models loaded successfully');
-      console.log('✅ Face-API models loaded');
+      setModelStatus('✓ Models loaded successfully');
+      console.log('✅ Face-API models loaded from CDN');
     } catch (err) {
       const errorMsg = `Failed to load models: ${err instanceof Error ? err.message : 'Unknown error'}`;
       setError(errorMsg);
-      setModelStatus('Model loading failed');
+      setModelStatus('❌ Model loading failed');
       console.error('Model loading error:', err);
     }
   };
@@ -100,10 +136,14 @@ const FacialVerification: React.FC = () => {
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-        setCameraActive(true);
-        setCameraStatus('Camera active');
-        startFaceDetection();
+        
+        // Wait for video to be ready
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play();
+          setCameraActive(true);
+          setCameraStatus('✓ Camera active');
+          startFaceDetection();
+        };
       }
     } catch (err) {
       let errorMsg = 'Failed to access camera. ';
@@ -121,7 +161,7 @@ const FacialVerification: React.FC = () => {
       }
       
       setError(errorMsg);
-      setCameraStatus('Camera activation failed');
+      setCameraStatus('❌ Camera activation failed');
       console.error('Camera error:', err);
     }
   };
@@ -142,17 +182,18 @@ const FacialVerification: React.FC = () => {
   };
 
   const startFaceDetection = () => {
-    if (!videoRef.current || !canvasRef.current) return;
+    if (!videoRef.current || !canvasRef.current || !window.faceapi) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
+    const faceapi = window.faceapi;
 
     detectionIntervalRef.current = setInterval(async () => {
       if (!modelsLoaded || !video.srcObject) return;
 
       try {
         const detections = await faceapi
-          .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions())
+          .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
           .withFaceLandmarks()
           .withFaceDescriptors();
 
@@ -171,9 +212,9 @@ const FacialVerification: React.FC = () => {
         // Update camera status based on face detection
         if (!livenessCheckActive && idPhotoDescriptor) {
           if (detections.length === 0) {
-            setCameraStatus('No face detected - position yourself in frame');
+            setCameraStatus('⚠️ No face detected - position yourself in frame');
           } else {
-            setCameraStatus('Face detected - ready for verification');
+            setCameraStatus('✓ Face detected - ready for verification');
           }
         }
       } catch (err) {
@@ -195,13 +236,14 @@ const FacialVerification: React.FC = () => {
       return;
     }
 
-    if (!modelsLoaded) {
+    if (!modelsLoaded || !window.faceapi) {
       setError('AI models not loaded yet. Please wait.');
       return;
     }
 
     try {
       setPhotoStatus('Processing photo...');
+      const faceapi = window.faceapi;
 
       // Display preview
       const reader = new FileReader();
@@ -213,7 +255,7 @@ const FacialVerification: React.FC = () => {
       // Process face detection
       const img = await faceapi.bufferToImage(file);
       const detection = await faceapi
-        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions())
+        .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
         .withFaceLandmarks()
         .withFaceDescriptor();
 
@@ -222,12 +264,12 @@ const FacialVerification: React.FC = () => {
         setPhotoStatus('✓ Face detected in ID photo');
       } else {
         setError('No face detected in uploaded photo. Please use a clear photo.');
-        setPhotoStatus('Face detection failed');
+        setPhotoStatus('❌ Face detection failed');
         setIdPhotoDescriptor(null);
       }
     } catch (err) {
       setError(`Photo processing failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      setPhotoStatus('Processing failed');
+      setPhotoStatus('❌ Processing failed');
     }
   };
 
@@ -242,12 +284,18 @@ const FacialVerification: React.FC = () => {
       return;
     }
 
+    if (!window.faceapi) {
+      setError('Face API not loaded');
+      return;
+    }
+
     setLivenessCheckActive(true);
     setError(null);
     setVerificationResult(null);
     setLivenessProgress(0);
 
     const video = videoRef.current;
+    const faceapi = window.faceapi;
     const detectionResults: Float32Array[] = [];
     const startTime = Date.now();
     let lastX: number | null = null;
@@ -269,11 +317,11 @@ const FacialVerification: React.FC = () => {
         const livenessSuccess = totalMovement > MOVEMENT_THRESHOLD * 5;
 
         if (livenessSuccess && detectionResults.length > 0) {
-          setLivenessStatus('Liveness check passed! Verifying...');
+          setLivenessStatus('✓ Liveness check passed! Verifying...');
           const finalDescriptor = detectionResults[detectionResults.length - 1];
           await verifyFace(finalDescriptor, true);
         } else {
-          setLivenessStatus('Liveness check failed');
+          setLivenessStatus('❌ Liveness check failed');
           setVerificationResult({
             isMatch: false,
             distance: 1,
@@ -290,7 +338,7 @@ const FacialVerification: React.FC = () => {
       // Detect face
       try {
         const detection = await faceapi
-          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
+          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 }))
           .withFaceLandmarks()
           .withFaceDescriptor();
 
@@ -306,7 +354,7 @@ const FacialVerification: React.FC = () => {
 
           setLivenessStatus(`Keep moving your head... ${remaining}s remaining`);
         } else {
-          setLivenessStatus(`Face not visible! ${remaining}s remaining`);
+          setLivenessStatus(`⚠️ Face not visible! ${remaining}s remaining`);
         }
       } catch (err) {
         console.error('Liveness detection error:', err);
@@ -315,10 +363,11 @@ const FacialVerification: React.FC = () => {
   };
 
   const verifyFace = async (liveDescriptor: Float32Array, livenessSuccess: boolean) => {
-    if (!idPhotoDescriptor) return;
+    if (!idPhotoDescriptor || !window.faceapi) return;
 
     try {
       setLivenessStatus('Computing facial match...');
+      const faceapi = window.faceapi;
 
       const distance = faceapi.euclideanDistance(idPhotoDescriptor, liveDescriptor);
       const isMatch = distance < DISTANCE_THRESHOLD;
@@ -329,10 +378,10 @@ const FacialVerification: React.FC = () => {
         livenessSuccess
       });
 
-      setLivenessStatus(isMatch ? 'Verification successful!' : 'Verification failed');
+      setLivenessStatus(isMatch ? '✓ Verification successful!' : '❌ Verification failed');
     } catch (err) {
       setError(`Verification error: ${err instanceof Error ? err.message : 'Unknown error'}`);
-      setLivenessStatus('Verification error');
+      setLivenessStatus('❌ Verification error');
     }
   };
 
@@ -368,7 +417,7 @@ const FacialVerification: React.FC = () => {
           <CardContent className="pt-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${modelsLoaded ? 'bg-green-500' : 'bg-yellow-500'}`} />
+                <div className={`w-2 h-2 rounded-full ${modelsLoaded ? 'bg-green-500' : 'bg-yellow-500 animate-pulse'}`} />
                 <span className="text-sm text-slate-600">{modelStatus}</span>
               </div>
               <div className="flex items-center gap-2">

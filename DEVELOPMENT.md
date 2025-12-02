@@ -190,3 +190,29 @@ LOG_LEVEL=info
 - Disk space issue blocked full npm install; manually run `npm install` in frontend folder
 - Prisma client will be generated after running `npx prisma generate` in backend
 - Aiken toolchain must be installed separately: https://aiken-lang.org/installation-instructions
+
+## Admin dashboard rollout (Dec 1)
+
+1. **Data model** – extend `app_role` with `field_agent`, add `field_agent_profiles` + `primary_validator_applications` tables, wire RLS so agents manage their own records while admins have override policies.
+2. **Supabase client** – regenerate types to surface the new tables/enum and expose helper metadata for the React app.
+3. **Frontend UX** – ship `/admin` route gated by `has_role('admin')`, add overview metrics, field-agent leaderboard, validator onboarding pipeline, and per-application controls (status transitions + document audit).
+4. **Integrations** – listen for realtime Supabase changes to keep stats live; fall back to manual refresh when metadata changes outside the current session.
+5. **Next steps** – persist admin notes edits, expose assignment workflows (admin → primary validator), and connect backend queueing once those services land.
+
+### Default admin bootstrap
+
+- Run `cd new_frontend && npm install` (installs the new `dotenv` helper).
+- Configure `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL` (or reuse `VITE_SUPABASE_URL`), and optionally override `DEFAULT_ADMIN_EMAIL`, `DEFAULT_ADMIN_PASSWORD`, `DEFAULT_ADMIN_FIRST_NAME`, `DEFAULT_ADMIN_LAST_NAME`.
+- Execute `npm run seed:admin` inside `new_frontend`. The script will idempotently create the auth user (confirming email automatically) and upsert the corresponding `user_roles` row with `admin` privileges.
+
+### Validator & field agent test accounts
+
+- From `new_frontend`, run `npm run seed:test-accounts` to provision default primary validator, secondary validator, and field agent identities.
+- Override the defaults via environment variables (e.g., `PRIMARY_VALIDATOR_TEST_EMAIL`, `FIELD_AGENT_TIER`) before running the script when needed.
+- Default credentials:
+  - Primary validator – `primary.validator@yotouch.local` / `ChangeMe@123`
+  - Secondary validator – `secondary.validator@yotouch.local` / `ChangeMe@123`
+  - Field agent – `field.agent@yotouch.local` / `ChangeMe@123`
+  - Final-stage user (waiting for blockchain proof) – `final.stage@yotouch.local` / `ChangeMe@123`
+- The script also seeds realistic NIN, BVN, and residential address fields so the facial-verification flow can progress past step 1 without manual database edits, and the final-stage user includes a populated `verification_requests` record (`status = verified`, profile still `pending`) to simulate "waiting for final proof" in the dashboard.
+- The seeder is idempotent: rerunning it keeps existing accounts intact, ensures roles are assigned, and (for the field agent) bootstraps a `field_agent_profiles` record for quicker end-to-end testing.

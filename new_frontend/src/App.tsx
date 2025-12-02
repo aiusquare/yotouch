@@ -10,6 +10,7 @@ import Dashboard from "./pages/Dashboard";
 import FacialVerification from "./pages/FacialVerification";
 import PrimaryValidatorDashboard from "./pages/PrimaryValidatorDashboard";
 import SecondaryValidatorDashboard from "./pages/SecondaryValidatorDashboard";
+import AdminDashboard from "./pages/AdminDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -24,10 +25,20 @@ const App = () => (
           <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/auth" element={<Auth />} />
-            <Route path="/facial-verification" element={<FacialVerification />} />
+            <Route
+              path="/facial-verification"
+              element={<FacialVerification />}
+            />
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/validator/primary" element={<PrimaryValidatorDashboard />} />
-            <Route path="/validator/secondary" element={<SecondaryValidatorDashboard />} />
+            <Route
+              path="/validator/primary"
+              element={<PrimaryValidatorDashboard />}
+            />
+            <Route
+              path="/validator/secondary"
+              element={<SecondaryValidatorDashboard />}
+            />
+            <Route path="/admin" element={<AdminDashboard />} />
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>

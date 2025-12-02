@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,10 @@ import {
   Clock,
   XCircle,
   ArrowRight,
+  Camera,
+  ShieldCheck,
+  Users,
+  Loader2,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
@@ -28,6 +32,8 @@ const Dashboard = () => {
   const { toast } = useToast();
   const [profile, setProfile] = useState<any>(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [userRequest, setUserRequest] = useState<any>(null);
+  const [requestLoading, setRequestLoading] = useState(false);
   const [userRoles, setUserRoles] = useState<string[]>([]);
   const [pendingCount, setPendingCount] = useState(0);
   const [validatorStats, setValidatorStats] = useState({
@@ -47,7 +53,38 @@ const Dashboard = () => {
     if (user) {
       loadProfile();
       loadUserRoles();
+      loadUserVerificationRequest();
     }
+  }, [user]);
+
+  useEffect(() => {
+    if (userRoles.includes("admin")) {
+      navigate("/admin", { replace: true });
+    }
+  }, [userRoles, navigate]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`verification-request-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "verification_requests",
+          filter: `user_id=eq.${user.id}`,
+        },
+        () => {
+          loadUserVerificationRequest();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [user]);
 
   useEffect(() => {
@@ -131,6 +168,27 @@ const Dashboard = () => {
       console.error("Error loading profile:", error);
     } finally {
       setProfileLoading(false);
+    }
+  };
+
+  const loadUserVerificationRequest = async () => {
+    if (!user?.id) return;
+    try {
+      setRequestLoading(true);
+      const { data, error } = await supabase
+        .from("verification_requests")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (error && error.code !== "PGRST116") throw error;
+      setUserRequest(data);
+    } catch (error) {
+      console.error("Error loading verification request:", error);
+    } finally {
+      setRequestLoading(false);
     }
   };
 
@@ -222,6 +280,84 @@ const Dashboard = () => {
     }
   };
 
+  const aiComplete = Boolean(
+    userRequest &&
+      userRequest.face_match_score !== null &&
+      userRequest.liveness_score !== null
+  );
+  const primaryComplete =
+    userRequest?.status === "primary_validated" ||
+    userRequest?.status === "verified";
+  const secondaryComplete = userRequest?.status === "verified";
+
+  const profileStatus = profile?.verification_status || "unverified";
+  const requestDerivedStatus = useMemo(() => {
+    if (!userRequest?.status) return null;
+
+    if (userRequest.status === "verified") {
+      return "verified";
+    }
+
+    if (userRequest.status === "rejected") {
+      return "rejected";
+    }
+
+    if (["pending", "primary_validated"].includes(userRequest.status)) {
+      return "pending";
+    }
+
+    return null;
+  }, [userRequest?.status]);
+
+  const verificationStatus = useMemo(() => {
+    if (
+      profileStatus === "unverified" &&
+      requestDerivedStatus &&
+      requestDerivedStatus !== "rejected"
+    ) {
+      return requestDerivedStatus;
+    }
+
+    return profileStatus;
+  }, [profileStatus, requestDerivedStatus]);
+
+  const finalComplete = verificationStatus === "verified";
+
+  const progressSteps = [
+    {
+      title: "AI screening",
+      description: "Liveness + face match checks",
+      statusText: aiComplete ? "Captured" : "Awaiting upload",
+      complete: aiComplete,
+      icon: <Camera className="w-5 h-5" />,
+    },
+    {
+      title: "Primary validator review",
+      description: "Community validator in your area",
+      statusText: primaryComplete ? "Cleared" : "Queued",
+      complete: primaryComplete,
+      icon: <ShieldCheck className="w-5 h-5" />,
+    },
+    {
+      title: "Secondary validator review",
+      description: "Distributed trust circle",
+      statusText: secondaryComplete
+        ? "Cleared"
+        : primaryComplete
+        ? "In review"
+        : "Waiting",
+      complete: secondaryComplete,
+      icon: <Users className="w-5 h-5" />,
+    },
+    {
+      title: "Final proof",
+      description: "Cardano hash + profile badge",
+      statusText: finalComplete ? "Minted" : "Pending",
+      complete: finalComplete,
+      icon: <CheckCircle className="w-5 h-5" />,
+    },
+  ];
+
   if (loading || profileLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -273,15 +409,9 @@ const Dashboard = () => {
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <div className="flex items-center gap-2">
-                    {getStatusIcon(
-                      profile?.verification_status || "unverified"
-                    )}
-                    <Badge
-                      className={getStatusColor(
-                        profile?.verification_status || "unverified"
-                      )}
-                    >
-                      {profile?.verification_status || "Unverified"}
+                    {getStatusIcon(verificationStatus)}
+                    <Badge className={getStatusColor(verificationStatus)}>
+                      {verificationStatus}
                     </Badge>
                   </div>
                   {(userRoles.includes("primary_validator") ||
@@ -429,7 +559,7 @@ const Dashboard = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {profile?.verification_status === "unverified" && (
+              {verificationStatus === "unverified" && (
                 <div className="text-center py-8">
                   <div className="w-20 h-20 rounded-full bg-muted flex items-center justify-center mx-auto mb-4">
                     <User className="w-10 h-10 text-muted-foreground" />
@@ -449,22 +579,80 @@ const Dashboard = () => {
                 </div>
               )}
 
-              {profile?.verification_status === "pending" && (
-                <div className="text-center py-8">
-                  <div className="w-20 h-20 rounded-full bg-yellow-500/10 flex items-center justify-center mx-auto mb-4">
-                    <Clock className="w-10 h-10 text-yellow-500 animate-pulse" />
+              {verificationStatus === "pending" && (
+                <div className="space-y-8">
+                  <div className="text-center py-8">
+                    <div className="w-20 h-20 rounded-full bg-yellow-500/10 flex items-center justify-center mx-auto mb-4">
+                      <Clock className="w-10 h-10 text-yellow-500 animate-pulse" />
+                    </div>
+                    <h3 className="font-semibold text-lg mb-2">
+                      Verification in Progress
+                    </h3>
+                    <p className="text-muted-foreground max-w-md mx-auto">
+                      Your verification request was sent to validators and is
+                      currently in the community review window. This usually
+                      takes 24-48 hours.
+                    </p>
                   </div>
-                  <h3 className="font-semibold text-lg mb-2">
-                    Verification in Progress
-                  </h3>
-                  <p className="text-muted-foreground max-w-md mx-auto">
-                    Your verification request is being reviewed by our
-                    validators. This usually takes 24-48 hours.
-                  </p>
+
+                  {requestLoading && (
+                    <div className="flex items-center gap-2 justify-center text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Updating progress...
+                    </div>
+                  )}
+
+                  {!requestLoading && userRequest && (
+                    <div className="space-y-4 text-left">
+                      <p className="text-sm font-semibold text-muted-foreground">
+                        Current progress
+                      </p>
+                      <div className="space-y-3">
+                        {progressSteps.map((step) => (
+                          <div
+                            key={step.title}
+                            className="flex items-start gap-4 rounded-xl border border-border/60 bg-muted/40 p-4"
+                          >
+                            <div
+                              className={`w-12 h-12 rounded-full flex items-center justify-center ${
+                                step.complete
+                                  ? "bg-green-500/10 text-green-600"
+                                  : "bg-background text-muted-foreground"
+                              }`}
+                            >
+                              {step.icon}
+                            </div>
+                            <div className="flex-1">
+                              <div className="flex items-center justify-between gap-2">
+                                <div>
+                                  <p className="font-semibold text-foreground">
+                                    {step.title}
+                                  </p>
+                                  <p className="text-sm text-muted-foreground">
+                                    {step.description}
+                                  </p>
+                                </div>
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    step.complete
+                                      ? "border-green-500/40 text-green-600"
+                                      : "text-muted-foreground"
+                                  }
+                                >
+                                  {step.statusText}
+                                </Badge>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {profile?.verification_status === "verified" && (
+              {verificationStatus === "verified" && (
                 <div className="text-center py-8">
                   <div className="w-20 h-20 rounded-full bg-green-500/10 flex items-center justify-center mx-auto mb-4">
                     <CheckCircle className="w-10 h-10 text-green-500" />
@@ -491,7 +679,7 @@ const Dashboard = () => {
             </CardContent>
           </Card>
 
-          {profile?.verification_status === "pending" && (
+          {verificationStatus === "pending" && (
             <Card className="border-primary/40 bg-primary/5 shadow-lg">
               <CardHeader>
                 <div className="flex items-center gap-2 text-primary">

@@ -14,6 +14,125 @@ export type Database = {
   };
   public: {
     Tables: {
+      field_agent_profiles: {
+        Row: {
+          active: boolean;
+          agent_id: string;
+          coverage_area: string | null;
+          created_at: string;
+          id: string;
+          last_assignment_at: string | null;
+          max_primary_validators: number;
+          notes: string | null;
+          tier: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          active?: boolean;
+          agent_id: string;
+          coverage_area?: string | null;
+          created_at?: string;
+          id?: string;
+          last_assignment_at?: string | null;
+          max_primary_validators?: number;
+          notes?: string | null;
+          tier?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          active?: boolean;
+          agent_id?: string;
+          coverage_area?: string | null;
+          created_at?: string;
+          id?: string;
+          last_assignment_at?: string | null;
+          max_primary_validators?: number;
+          notes?: string | null;
+          tier?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "field_agent_profiles_agent_id_fkey";
+            columns: ["agent_id"];
+            isOneToOne: true;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+      primary_validator_applications: {
+        Row: {
+          admin_notes: string | null;
+          bvn: string | null;
+          candidate_contact: string | null;
+          candidate_email: string | null;
+          candidate_name: string;
+          community: string | null;
+          created_at: string;
+          field_agent_id: string | null;
+          id: string;
+          nin: string | null;
+          primary_validator_profile_id: string | null;
+          region: string | null;
+          risk_level: string;
+          status: string;
+          supporting_documents: Json | null;
+          updated_at: string;
+        };
+        Insert: {
+          admin_notes?: string | null;
+          bvn?: string | null;
+          candidate_contact?: string | null;
+          candidate_email?: string | null;
+          candidate_name: string;
+          community?: string | null;
+          created_at?: string;
+          field_agent_id?: string | null;
+          id?: string;
+          nin?: string | null;
+          primary_validator_profile_id?: string | null;
+          region?: string | null;
+          risk_level?: string;
+          status?: string;
+          supporting_documents?: Json | null;
+          updated_at?: string;
+        };
+        Update: {
+          admin_notes?: string | null;
+          bvn?: string | null;
+          candidate_contact?: string | null;
+          candidate_email?: string | null;
+          candidate_name?: string;
+          community?: string | null;
+          created_at?: string;
+          field_agent_id?: string | null;
+          id?: string;
+          nin?: string | null;
+          primary_validator_profile_id?: string | null;
+          region?: string | null;
+          risk_level?: string;
+          status?: string;
+          supporting_documents?: Json | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "primary_validator_applications_field_agent_id_fkey";
+            columns: ["field_agent_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "primary_validator_applications_primary_validator_profile_id_fkey";
+            columns: ["primary_validator_profile_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       profiles: {
         Row: {
           blockchain_proof_hash: string | null;
@@ -97,11 +216,13 @@ export type Database = {
       };
       verification_requests: {
         Row: {
+          address_rating: string | null;
           created_at: string;
           face_match_score: number | null;
           final_score: number | null;
           id: string;
           liveness_score: number | null;
+          character_level: string | null;
           nin_bvn: string | null;
           residential_claim: string | null;
           address_match_score: number | null;
@@ -114,11 +235,13 @@ export type Database = {
           video_url: string | null;
         };
         Insert: {
+          address_rating?: string | null;
           created_at?: string;
           face_match_score?: number | null;
           final_score?: number | null;
           id?: string;
           liveness_score?: number | null;
+          character_level?: string | null;
           nin_bvn?: string | null;
           residential_claim?: string | null;
           address_match_score?: number | null;
@@ -131,11 +254,13 @@ export type Database = {
           video_url?: string | null;
         };
         Update: {
+          address_rating?: string | null;
           created_at?: string;
           face_match_score?: number | null;
           final_score?: number | null;
           id?: string;
           liveness_score?: number | null;
+          character_level?: string | null;
           nin_bvn?: string | null;
           residential_claim?: string | null;
           address_match_score?: number | null;
@@ -171,7 +296,12 @@ export type Database = {
       };
     };
     Enums: {
-      app_role: "user" | "primary_validator" | "secondary_validator" | "admin";
+      app_role:
+        | "user"
+        | "primary_validator"
+        | "secondary_validator"
+        | "admin"
+        | "field_agent";
     };
     CompositeTypes: {
       [_ in never]: never;
@@ -302,7 +432,13 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["user", "primary_validator", "secondary_validator", "admin"],
+      app_role: [
+        "user",
+        "primary_validator",
+        "secondary_validator",
+        "admin",
+        "field_agent",
+      ],
     },
   },
 } as const;

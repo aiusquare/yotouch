@@ -1,0 +1,6 @@
+name = "yotouch/identity-proof"
+version = "0.1.0"
+license = "Apache-2.0"
+description = "Aiken validator securing YoTouch identity proofs"
+
+dependencies = []

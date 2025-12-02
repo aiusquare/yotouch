@@ -4,18 +4,18 @@ YoTouch — Decentralized Identity & Social-Proof Verification on Cardano
 
 🚀 **Overview**
 
-**YoTouch** is a decentralized digital identity and social-proof verification system built for the **Cardano blockchain**.
+**YoTouch** is a decentralized digital identity and social-proof verification system built on the **Cardano blockchain**.
 It provides a unified, tamper-proof way for individuals to prove *who they are*, *where they live*, and *that they are trusted by their community*—all without depending on a centralized authority.
 
 Instead of traditional KYC models where only institutions validate identity, **YoTouch blends:**
 
 * **Biometric verification** (face match + liveness)
-* **National identity confirmation** (NIN/BVN where available)
+* **National identity confirmation** (NIN/BVN via api)
 * **Address validation**
 * **Community-based social trust from verifiable human reviewers**
 * **Decentralized proofs stored immutably on Cardano**
 
-This creates an identity score and verification proof that is portable, cryptographically secure, and nearly impossible to forge.
+This creates an **identity score and verification proof that is portable, cryptographically secure, and nearly impossible to forge**.
 
 # 🌍 **Why YoTouch Exists**
 
@@ -33,7 +33,7 @@ In real life, however, people *do* have identity—validated every day through:
 * People who know and trust them
 
 **YoTouch uses blockchain and AI to digitize this natural social trust process.**
-This creates a digital identity primitive that works *even where government ID systems fail*—while still integrating with them when available.
+This creates a digital identity primitive that works *even where government ID systems fail* — while still integrating with them when available.
 
 # 🔑 **Key Innovations**
 
@@ -43,32 +43,32 @@ This is YoTouch’s most powerful and unique feature.
 
 Each user is verified by **two tiers of human validators**:
 
-### **Primary Validators (People Who Know You Personally)**
+### **Primary Validators (People Who are Prominant in Societies)**
 
-These are individuals from the user’s real-life network:
+These are individuals prominant and holds community's respect like:
 
-* Colleagues
-* Neighbors
-* Teachers
+* Traditional rulers
+* Popular politicians
+* Organisational heads (Directors and the likes)
 * Employers
-* Community leaders
+* Pastors/Imams
 
 They verify claims such as:
 
 * “This is the real person.”
-* “This is their correct address.”
-* “We know them physically.”
+* “Confirm that they belong to our community by confirming the address they provide.”
+* “That we know them physically.”
 
 ### **Secondary Validators (Independent Community Validators)**
 
-Trained and approved validators from the YoTouch community who do **neutral, objective** reviews.
+Trusted and approved users by primary validators from the YoTouch community who do **neutral, objective** reviews.
 
 They verify:
 
 * Consistency
 * Liveness
-* Documentation accuracy
 * Fraud patterns
+* Secondary Address review
 
 ### 🧠 **Validator Reputation System**
 
@@ -117,10 +117,9 @@ in a single unified workflow.
 User submits:
 
 * Full name
-* NIN/BVN (optional but increases score)
+* NIN & BVN
 * Selfie + short video
 * Residential address
-* Utility bill or supporting document
 
 This data is encrypted immediately using AES-256.
 
@@ -133,10 +132,10 @@ This data is encrypted immediately using AES-256.
 AI compares:
 
 * User selfie
-* The stored NIN/BVN image (mock/demo mode allowed)
-* Facial embeddings using ArcFace or FaceNet
+* The stored NIN/BVN image
+* Facial embeddings using ArcFace
 
-### 🔹 Liveness Detection (20 pts)
+### 🔹 Liveness Detection (10 pts)
 
 Simple challenge-response:
 
@@ -148,15 +147,7 @@ Protects against spoofing.
 
 ---
 
-## **Step 3 — Document + Address Checks (15 pts)**
-
-* OCR analysis on supporting documents
-* AI checks for anomalies and manipulations
-* Geolocation cross-checking (optional)
-
----
-
-## **Step 4 — Social-Proof Validation (15 pts)**
+## **Step 4 — Social-Proof Validation (40 pts)**
 
 Primary and secondary validators confirm:
 
@@ -177,13 +168,12 @@ Validators with higher reputation earn more influence in the scoring model.
 
 ## **Step 6 — Final Score Computation (0–100)**
 
-| Check Type                    | Weight |
-| ----------------------------- | ------ |
-| Face Match                    | 40 pts |
-| Liveness                      | 20 pts |
-| NIN/BVN Confirmation          | 15 pts |
-| Address + Docs                | 15 pts |
-| Reviewer Reputation Influence | 10 pts |
+| Check Type                            | Weight |
+| ------------------------------------  | ------ |
+| Face Match and NIN/BVN confirmation   | 40 pts |
+| Liveness                              | 10 pts |
+| Social proof and Address  Validation  | 40 pts |
+| Reviewer Reputation Influence         | 10 pts |
 
 ---
 
@@ -200,6 +190,7 @@ Then stored on **Cardano** using:
 * A lightweight Plutus script
 * Cost-efficient UTxO data pattern
 * Immutable verifiable proof
+* Mint digital address proof
 
 This allows:
 
@@ -245,6 +236,7 @@ Cardano has invested deeply in African identity initiatives; YoTouch extends tha
 * Capture selfie + liveness
 * Display verification score
 * Show blockchain proof
+* Digital Address proof Badge
 
 ### **Backend (Node.js + Express + PostgreSQL)**
 
@@ -257,7 +249,6 @@ Cardano has invested deeply in African identity initiatives; YoTouch extends tha
 
 * Face embeddings
 * Liveness checks
-* Document OCR
 
 ### **Cardano Smart Contract**
 
@@ -293,7 +284,7 @@ Cardano has invested deeply in African identity initiatives; YoTouch extends tha
 
 ### ✔ Proof-of-Residence (PoR) for local governance
 
-YoTouch introduces digital identity where formal systems are weak — but without excluding existing national systems.
+YoTouch introduces digital identity and Address proof where formal systems are weak — but without excluding existing national systems.
 
 ---
 

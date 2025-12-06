@@ -14,6 +14,41 @@ export type Database = {
   };
   public: {
     Tables: {
+      badge_events: {
+        Row: {
+          created_at: string;
+          event: string;
+          id: string;
+          metadata: Json | null;
+          points: number;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          event: string;
+          id?: string;
+          metadata?: Json | null;
+          points?: number;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          event?: string;
+          id?: string;
+          metadata?: Json | null;
+          points?: number;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "badge_events_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       field_agent_profiles: {
         Row: {
           active: boolean;
@@ -135,6 +170,9 @@ export type Database = {
       };
       profiles: {
         Row: {
+          badge_last_updated_at: string | null;
+          badge_level: number;
+          badge_points: number;
           blockchain_proof_hash: string | null;
           bvn: string | null;
           created_at: string;
@@ -154,6 +192,9 @@ export type Database = {
           verification_status: string | null;
         };
         Insert: {
+          badge_last_updated_at?: string | null;
+          badge_level?: number;
+          badge_points?: number;
           blockchain_proof_hash?: string | null;
           bvn?: string | null;
           created_at?: string;
@@ -173,6 +214,9 @@ export type Database = {
           verification_status?: string | null;
         };
         Update: {
+          badge_last_updated_at?: string | null;
+          badge_level?: number;
+          badge_points?: number;
           blockchain_proof_hash?: string | null;
           bvn?: string | null;
           created_at?: string;
@@ -217,16 +261,22 @@ export type Database = {
       verification_requests: {
         Row: {
           address_rating: string | null;
+          address_match_score: number | null;
+          character_level: string | null;
           created_at: string;
           face_match_score: number | null;
           final_score: number | null;
           id: string;
           liveness_score: number | null;
-          character_level: string | null;
           nin_bvn: string | null;
+          primary_validated_at: string | null;
+          primary_validator_id: string | null;
+          primary_validator_notes: string | null;
           residential_claim: string | null;
-          address_match_score: number | null;
           reputation_score: number | null;
+          secondary_validated_at: string | null;
+          secondary_validator_id: string | null;
+          secondary_validator_notes: string | null;
           selfie_url: string | null;
           social_proof_score: number | null;
           status: string | null;
@@ -236,16 +286,22 @@ export type Database = {
         };
         Insert: {
           address_rating?: string | null;
+          address_match_score?: number | null;
+          character_level?: string | null;
           created_at?: string;
           face_match_score?: number | null;
           final_score?: number | null;
           id?: string;
           liveness_score?: number | null;
-          character_level?: string | null;
           nin_bvn?: string | null;
+          primary_validated_at?: string | null;
+          primary_validator_id?: string | null;
+          primary_validator_notes?: string | null;
           residential_claim?: string | null;
-          address_match_score?: number | null;
           reputation_score?: number | null;
+          secondary_validated_at?: string | null;
+          secondary_validator_id?: string | null;
+          secondary_validator_notes?: string | null;
           selfie_url?: string | null;
           social_proof_score?: number | null;
           status?: string | null;
@@ -255,16 +311,22 @@ export type Database = {
         };
         Update: {
           address_rating?: string | null;
+          address_match_score?: number | null;
+          character_level?: string | null;
           created_at?: string;
           face_match_score?: number | null;
           final_score?: number | null;
           id?: string;
           liveness_score?: number | null;
-          character_level?: string | null;
           nin_bvn?: string | null;
+          primary_validated_at?: string | null;
+          primary_validator_id?: string | null;
+          primary_validator_notes?: string | null;
           residential_claim?: string | null;
-          address_match_score?: number | null;
           reputation_score?: number | null;
+          secondary_validated_at?: string | null;
+          secondary_validator_id?: string | null;
+          secondary_validator_notes?: string | null;
           selfie_url?: string | null;
           social_proof_score?: number | null;
           status?: string | null;

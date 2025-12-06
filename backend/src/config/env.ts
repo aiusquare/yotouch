@@ -11,4 +11,10 @@ export const env = {
   CARDANO_WEBHOOK_URL:
     process.env.CARDANO_WEBHOOK_URL ?? "http://localhost:5050/proofs",
   AI_SERVICE_URL: process.env.AI_SERVICE_URL ?? "http://localhost:9000",
+  CARDANO_NETWORK: process.env.CARDANO_NETWORK ?? "Preprod",
+  BLOCKFROST_API_URL:
+    process.env.BLOCKFROST_API_URL ??
+    "https://cardano-preprod.blockfrost.io/api/v0",
+  BLOCKFROST_PROJECT_ID: process.env.BLOCKFROST_PROJECT_ID,
+  CARDANO_SIGNING_KEY: process.env.CARDANO_SIGNING_KEY,
 };

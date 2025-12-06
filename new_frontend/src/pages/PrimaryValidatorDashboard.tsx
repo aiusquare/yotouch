@@ -46,6 +46,9 @@ interface VerificationRequest {
   character_level: string | null;
   address_rating: string | null;
   nin_bvn: string | null;
+  primary_validator_notes: string | null;
+  primary_validator_id: string | null;
+  primary_validated_at: string | null;
   profiles: {
     first_name: string | null;
     last_name: string | null;
@@ -89,6 +92,7 @@ export default function PrimaryValidatorDashboard() {
     if (!selectedRequest) {
       setCharacterRatingIndex(DEFAULT_CHARACTER_INDEX);
       setAddressRatingIndex(DEFAULT_ADDRESS_INDEX);
+      setNotes("");
       return;
     }
 
@@ -108,6 +112,8 @@ export default function PrimaryValidatorDashboard() {
     setAddressRatingIndex(
       addressMatchIndex !== -1 ? addressMatchIndex : DEFAULT_ADDRESS_INDEX
     );
+
+    setNotes(selectedRequest.primary_validator_notes || "");
   }, [selectedRequest]);
 
   const checkRole = async () => {
@@ -164,12 +170,17 @@ export default function PrimaryValidatorDashboard() {
   const handleApprove = async () => {
     if (!selectedRequest) return;
     setProcessing(true);
+    const now = new Date().toISOString();
+    const normalizedNotes = notes.trim() ? notes.trim() : null;
 
     const { error } = await supabase
       .from("verification_requests")
       .update({
         character_level: selectedCharacterLevel,
         address_rating: selectedAddressLevel,
+        primary_validator_id: user?.id ?? null,
+        primary_validator_notes: normalizedNotes,
+        primary_validated_at: now,
         status: "primary_validated",
       })
       .eq("id", selectedRequest.id);
@@ -193,12 +204,17 @@ export default function PrimaryValidatorDashboard() {
   const handleReject = async () => {
     if (!selectedRequest) return;
     setProcessing(true);
+    const now = new Date().toISOString();
+    const normalizedNotes = notes.trim() ? notes.trim() : null;
 
     const { error } = await supabase
       .from("verification_requests")
       .update({
         character_level: selectedCharacterLevel,
         address_rating: selectedAddressLevel,
+        primary_validator_id: user?.id ?? null,
+        primary_validator_notes: normalizedNotes,
+        primary_validated_at: now,
         status: "rejected",
       })
       .eq("id", selectedRequest.id);

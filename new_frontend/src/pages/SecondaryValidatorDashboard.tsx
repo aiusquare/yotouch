@@ -3,7 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, UserCheck, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +28,9 @@ interface VerificationRequest {
   created_at: string;
   selfie_url: string | null;
   nin_bvn: string | null;
+  secondary_validator_notes: string | null;
+  secondary_validator_id: string | null;
+  secondary_validated_at: string | null;
   profiles: {
     first_name: string | null;
     last_name: string | null;
@@ -37,11 +46,25 @@ export default function SecondaryValidatorDashboard() {
   const [loading, setLoading] = useState(true);
   const [hasRole, setHasRole] = useState(false);
   const [requests, setRequests] = useState<VerificationRequest[]>([]);
-  const [selectedRequest, setSelectedRequest] = useState<VerificationRequest | null>(null);
+  const [selectedRequest, setSelectedRequest] =
+    useState<VerificationRequest | null>(null);
   const [socialProofScore, setSocialProofScore] = useState([70]);
   const [reputationScore, setReputationScore] = useState([75]);
   const [notes, setNotes] = useState("");
   const [processing, setProcessing] = useState(false);
+
+  useEffect(() => {
+    if (!selectedRequest) {
+      setSocialProofScore([70]);
+      setReputationScore([75]);
+      setNotes("");
+      return;
+    }
+
+    setSocialProofScore([selectedRequest.social_proof_score ?? 70]);
+    setReputationScore([selectedRequest.reputation_score ?? 75]);
+    setNotes(selectedRequest.secondary_validator_notes || "");
+  }, [selectedRequest]);
 
   useEffect(() => {
     if (!user) {
@@ -81,7 +104,8 @@ export default function SecondaryValidatorDashboard() {
   const fetchRequests = async () => {
     const { data, error } = await supabase
       .from("verification_requests")
-      .select(`
+      .select(
+        `
         *,
         profiles (
           first_name,
@@ -90,7 +114,8 @@ export default function SecondaryValidatorDashboard() {
           bvn,
           residential_address
         )
-      `)
+      `
+      )
       .eq("status", "primary_validated")
       .order("created_at", { ascending: true });
 
@@ -105,7 +130,7 @@ export default function SecondaryValidatorDashboard() {
 
   const calculateFinalScore = () => {
     if (!selectedRequest) return 0;
-    
+
     const scores = [
       selectedRequest.face_match_score || 0,
       selectedRequest.liveness_score || 0,
@@ -121,6 +146,8 @@ export default function SecondaryValidatorDashboard() {
     setProcessing(true);
 
     const finalScore = calculateFinalScore();
+    const now = new Date().toISOString();
+    const normalizedNotes = notes.trim() ? notes.trim() : null;
 
     const { error: requestError } = await supabase
       .from("verification_requests")
@@ -129,6 +156,9 @@ export default function SecondaryValidatorDashboard() {
         reputation_score: reputationScore[0],
         final_score: finalScore,
         status: "verified",
+        secondary_validator_id: user?.id ?? null,
+        secondary_validator_notes: normalizedNotes,
+        secondary_validated_at: now,
       })
       .eq("id", selectedRequest.id);
 
@@ -155,6 +185,8 @@ export default function SecondaryValidatorDashboard() {
     toast.success("Verification completed successfully!");
     setSelectedRequest(null);
     setNotes("");
+    setSocialProofScore([70]);
+    setReputationScore([75]);
     fetchRequests();
     setProcessing(false);
   };
@@ -162,11 +194,17 @@ export default function SecondaryValidatorDashboard() {
   const handleReject = async () => {
     if (!selectedRequest) return;
     setProcessing(true);
+    const now = new Date().toISOString();
+    const normalizedNotes = notes.trim() ? notes.trim() : null;
 
     const { error } = await supabase
       .from("verification_requests")
       .update({
         status: "rejected",
+        final_score: null,
+        secondary_validator_id: user?.id ?? null,
+        secondary_validator_notes: normalizedNotes,
+        secondary_validated_at: now,
         social_proof_score: socialProofScore[0],
         reputation_score: reputationScore[0],
       })
@@ -182,6 +220,8 @@ export default function SecondaryValidatorDashboard() {
     toast.success("Verification rejected");
     setSelectedRequest(null);
     setNotes("");
+    setSocialProofScore([70]);
+    setReputationScore([75]);
     fetchRequests();
     setProcessing(false);
   };
@@ -203,10 +243,16 @@ export default function SecondaryValidatorDashboard() {
       <div className="max-w-7xl mx-auto">
         <div className="flex justify-between items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-foreground">Secondary Validator Dashboard</h1>
-            <p className="text-muted-foreground mt-2">Review and validate address and reputation</p>
+            <h1 className="text-3xl font-bold text-foreground">
+              Secondary Validator Dashboard
+            </h1>
+            <p className="text-muted-foreground mt-2">
+              Review and validate address and reputation
+            </p>
           </div>
-          <Button onClick={signOut} variant="outline">Sign Out</Button>
+          <Button onClick={signOut} variant="outline">
+            Sign Out
+          </Button>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -218,17 +264,23 @@ export default function SecondaryValidatorDashboard() {
                   <UserCheck className="h-5 w-5" />
                   Primary Validated ({requests.length})
                 </CardTitle>
-                <CardDescription>Select a verification request to review</CardDescription>
+                <CardDescription>
+                  Select a verification request to review
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 {requests.length === 0 ? (
-                  <p className="text-muted-foreground text-center py-8">No pending verifications</p>
+                  <p className="text-muted-foreground text-center py-8">
+                    No pending verifications
+                  </p>
                 ) : (
                   requests.map((request) => (
                     <Card
                       key={request.id}
                       className={`cursor-pointer transition-colors hover:bg-muted/50 ${
-                        selectedRequest?.id === request.id ? "border-primary" : ""
+                        selectedRequest?.id === request.id
+                          ? "border-primary"
+                          : ""
                       }`}
                       onClick={() => setSelectedRequest(request)}
                     >
@@ -236,14 +288,21 @@ export default function SecondaryValidatorDashboard() {
                         <div className="flex justify-between items-start">
                           <div>
                             <p className="font-medium">
-                              {request.profiles?.first_name} {request.profiles?.last_name}
+                              {request.profiles?.first_name}{" "}
+                              {request.profiles?.last_name}
                             </p>
                             <p className="text-sm text-muted-foreground">
-                              {new Date(request.created_at).toLocaleDateString()}
+                              {new Date(
+                                request.created_at
+                              ).toLocaleDateString()}
                             </p>
                             <div className="flex gap-2 mt-2">
-                              <Badge variant="outline">Face: {request.face_match_score}%</Badge>
-                              <Badge variant="outline">Live: {request.liveness_score}%</Badge>
+                              <Badge variant="outline">
+                                Face: {request.face_match_score}%
+                              </Badge>
+                              <Badge variant="outline">
+                                Live: {request.liveness_score}%
+                              </Badge>
                             </div>
                           </div>
                           <Badge>{request.status}</Badge>
@@ -262,23 +321,43 @@ export default function SecondaryValidatorDashboard() {
               <Card>
                 <CardHeader>
                   <CardTitle>Review Verification</CardTitle>
-                  <CardDescription>Validate address and reputation</CardDescription>
+                  <CardDescription>
+                    Validate address and reputation
+                  </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
                   <div>
                     <h3 className="font-semibold mb-2">User Information</h3>
                     <div className="space-y-2 text-sm">
-                      <p><span className="text-muted-foreground">Name:</span> {selectedRequest.profiles?.first_name} {selectedRequest.profiles?.last_name}</p>
-                      <p><span className="text-muted-foreground">NIN:</span> {selectedRequest.profiles?.nin || "Not provided"}</p>
-                      <p><span className="text-muted-foreground">BVN:</span> {selectedRequest.profiles?.bvn || "Not provided"}</p>
-                      <p><span className="text-muted-foreground">Address:</span> {selectedRequest.profiles?.residential_address || "Not provided"}</p>
+                      <p>
+                        <span className="text-muted-foreground">Name:</span>{" "}
+                        {selectedRequest.profiles?.first_name}{" "}
+                        {selectedRequest.profiles?.last_name}
+                      </p>
+                      <p>
+                        <span className="text-muted-foreground">NIN:</span>{" "}
+                        {selectedRequest.profiles?.nin || "Not provided"}
+                      </p>
+                      <p>
+                        <span className="text-muted-foreground">BVN:</span>{" "}
+                        {selectedRequest.profiles?.bvn || "Not provided"}
+                      </p>
+                      <p>
+                        <span className="text-muted-foreground">Address:</span>{" "}
+                        {selectedRequest.profiles?.residential_address ||
+                          "Not provided"}
+                      </p>
                     </div>
                   </div>
 
                   <div>
-                    <h3 className="font-semibold mb-2">Primary Validation Scores</h3>
+                    <h3 className="font-semibold mb-2">
+                      Primary Validation Scores
+                    </h3>
                     <div className="flex gap-4">
-                      <Badge>Face Match: {selectedRequest.face_match_score}%</Badge>
+                      <Badge>
+                        Face Match: {selectedRequest.face_match_score}%
+                      </Badge>
                       <Badge>Liveness: {selectedRequest.liveness_score}%</Badge>
                     </div>
                   </div>
@@ -319,7 +398,9 @@ export default function SecondaryValidatorDashboard() {
                   </div>
 
                   <div>
-                    <label className="text-sm font-medium mb-2 block">Notes (Optional)</label>
+                    <label className="text-sm font-medium mb-2 block">
+                      Notes (Optional)
+                    </label>
                     <Textarea
                       value={notes}
                       onChange={(e) => setNotes(e.target.value)}
@@ -334,7 +415,11 @@ export default function SecondaryValidatorDashboard() {
                       disabled={processing}
                       className="flex-1"
                     >
-                      {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Approve & Complete"}
+                      {processing ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Approve & Complete"
+                      )}
                     </Button>
                     <Button
                       onClick={handleReject}
@@ -342,7 +427,11 @@ export default function SecondaryValidatorDashboard() {
                       variant="destructive"
                       className="flex-1"
                     >
-                      {processing ? <Loader2 className="h-4 w-4 animate-spin" /> : "Reject"}
+                      {processing ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        "Reject"
+                      )}
                     </Button>
                   </div>
                 </CardContent>
@@ -351,7 +440,9 @@ export default function SecondaryValidatorDashboard() {
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-16">
                   <AlertCircle className="h-12 w-12 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">Select a verification request to review</p>
+                  <p className="text-muted-foreground">
+                    Select a verification request to review
+                  </p>
                 </CardContent>
               </Card>
             )}

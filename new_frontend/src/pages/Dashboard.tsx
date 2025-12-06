@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -22,9 +22,84 @@ import {
   ShieldCheck,
   Users,
   Loader2,
+  Award,
+  Sparkles,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { submitProof } from "@/lib/proofs";
+import { resolveBadge } from "@/lib/badges";
+
+type BadgeBreakdown = {
+  base: number;
+  primary: number;
+  secondary: number;
+  role: number;
+  reputation: number;
+};
+
+interface BadgeStats {
+  level: number;
+  title: string;
+  description: string;
+  mantra: string;
+  points: number;
+  progress: number;
+  nextTitle: string | null;
+  pointsToNext: number;
+  counts: {
+    primaryReviews: number;
+    secondaryReviews: number;
+  };
+  breakdown: BadgeBreakdown;
+}
+
+const BADGE_POINT_WEIGHTS = {
+  verification: 120,
+  baseUnverified: 20,
+  primaryReview: 60,
+  secondaryReview: 40,
+  rolePrimary: 25,
+  roleSecondary: 15,
+  reputationMultiplier: 0.5,
+};
+
+const BADGE_THEMES: Record<
+  number,
+  { pill: string; glow: string; accent: string }
+> = {
+  0: {
+    pill: "bg-slate-900 text-white",
+    glow: "from-slate-200/60 via-white/20 to-transparent",
+    accent: "text-slate-900",
+  },
+  1: {
+    pill: "bg-emerald-600 text-white",
+    glow: "from-emerald-200/60 via-emerald-100/20 to-transparent",
+    accent: "text-emerald-700",
+  },
+  2: {
+    pill: "bg-sky-600 text-white",
+    glow: "from-sky-200/60 via-sky-100/20 to-transparent",
+    accent: "text-sky-700",
+  },
+  3: {
+    pill: "bg-violet-600 text-white",
+    glow: "from-violet-200/60 via-violet-100/20 to-transparent",
+    accent: "text-violet-700",
+  },
+  4: {
+    pill: "bg-amber-600 text-white",
+    glow: "from-amber-200/60 via-amber-100/20 to-transparent",
+    accent: "text-amber-700",
+  },
+};
+
+const DEFAULT_BADGE_THEME = {
+  pill: "bg-muted text-foreground",
+  glow: "from-muted/50 via-background/20 to-transparent",
+  accent: "text-foreground",
+};
 
 const Dashboard = () => {
   const { user, signOut, loading } = useAuth();
@@ -42,6 +117,11 @@ const Dashboard = () => {
     rejected: 0,
     successRate: 0,
   });
+  const [finalizingProof, setFinalizingProof] = useState(false);
+  const [joiningSecondaryPool, setJoiningSecondaryPool] = useState(false);
+  const [badgeStats, setBadgeStats] = useState<BadgeStats | null>(null);
+  const [badgeLoading, setBadgeLoading] = useState(false);
+  const [userRolesLoaded, setUserRolesLoaded] = useState(false);
 
   useEffect(() => {
     if (!loading && !user) {
@@ -193,6 +273,13 @@ const Dashboard = () => {
   };
 
   const loadUserRoles = async () => {
+    if (!user?.id) {
+      setUserRoles([]);
+      setUserRolesLoaded(false);
+      return;
+    }
+
+    setUserRolesLoaded(false);
     try {
       const { data, error } = await supabase
         .from("user_roles")
@@ -203,6 +290,49 @@ const Dashboard = () => {
       setUserRoles(data?.map((r) => r.role) || []);
     } catch (error) {
       console.error("Error loading user roles:", error);
+    } finally {
+      setUserRolesLoaded(true);
+    }
+  };
+
+  const handleJoinSecondaryValidatorPool = async () => {
+    if (!user) return;
+
+    if (verificationStatus !== "verified") {
+      toast({
+        title: "Verification required",
+        description: "Complete your own verification before reviewing others.",
+      });
+      return;
+    }
+
+    setJoiningSecondaryPool(true);
+    try {
+      const { error } = await supabase
+        .from("user_roles")
+        .upsert(
+          { user_id: user.id, role: "secondary_validator" },
+          { onConflict: "user_id,role" }
+        );
+
+      if (error) throw error;
+
+      toast({
+        title: "Secondary reviews unlocked",
+        description:
+          "Thanks for backing the network. New dossiers will appear in your validator dashboard.",
+      });
+
+      await loadUserRoles();
+    } catch (error) {
+      console.error("Error joining secondary validator pool:", error);
+      toast({
+        title: "Unable to start secondary reviews",
+        description: "Please try again in a moment.",
+        variant: "destructive",
+      });
+    } finally {
+      setJoiningSecondaryPool(false);
     }
   };
 
@@ -254,6 +384,190 @@ const Dashboard = () => {
     }
   };
 
+  const loadBadgeProgress = useCallback(async () => {
+    if (!user?.id || !profile) {
+      return;
+    }
+
+    setBadgeLoading(true);
+
+    try {
+      const [primaryAgg, secondaryAgg] = await Promise.all([
+        supabase
+          .from("verification_requests")
+          .select("*", { count: "exact", head: true })
+          .eq("primary_validator_id", user.id)
+          .in("status", ["primary_validated", "verified"]),
+        supabase
+          .from("verification_requests")
+          .select("*", { count: "exact", head: true })
+          .eq("secondary_validator_id", user.id)
+          .eq("status", "verified"),
+      ]);
+
+      if (primaryAgg?.error) throw primaryAgg.error;
+      if (secondaryAgg?.error) throw secondaryAgg.error;
+
+      const primaryReviews = primaryAgg?.count || 0;
+      const secondaryReviews = secondaryAgg?.count || 0;
+
+      const basePoints =
+        profile.verification_status === "verified"
+          ? BADGE_POINT_WEIGHTS.verification
+          : BADGE_POINT_WEIGHTS.baseUnverified;
+
+      const rolePoints =
+        (userRoles.includes("primary_validator")
+          ? BADGE_POINT_WEIGHTS.rolePrimary
+          : 0) +
+        (userRoles.includes("secondary_validator")
+          ? BADGE_POINT_WEIGHTS.roleSecondary
+          : 0);
+
+      const reputationBonus = Math.round(
+        (profile.verification_score ?? 0) *
+          BADGE_POINT_WEIGHTS.reputationMultiplier
+      );
+
+      const totalPoints =
+        basePoints +
+        primaryReviews * BADGE_POINT_WEIGHTS.primaryReview +
+        secondaryReviews * BADGE_POINT_WEIGHTS.secondaryReview +
+        rolePoints +
+        reputationBonus;
+
+      const { current, next, progressToNext } = resolveBadge(totalPoints);
+
+      const storedLevel = profile.badge_level ?? 0;
+      const storedPoints = profile.badge_points ?? 0;
+
+      if (storedLevel !== current.level || storedPoints !== totalPoints) {
+        const { data, error } = await supabase
+          .from("profiles")
+          .update({
+            badge_level: current.level,
+            badge_points: totalPoints,
+            badge_last_updated_at: new Date().toISOString(),
+          })
+          .eq("id", user.id)
+          .select("*")
+          .maybeSingle();
+
+        if (error) throw error;
+        if (data) {
+          setProfile(data);
+        }
+      }
+
+      setBadgeStats({
+        level: current.level,
+        title: current.title,
+        description: current.description,
+        mantra: current.mantra,
+        points: totalPoints,
+        progress: progressToNext,
+        nextTitle: next?.title ?? null,
+        pointsToNext: next ? Math.max(0, next.minPoints - totalPoints) : 0,
+        counts: {
+          primaryReviews,
+          secondaryReviews,
+        },
+        breakdown: {
+          base: basePoints,
+          primary: primaryReviews * BADGE_POINT_WEIGHTS.primaryReview,
+          secondary: secondaryReviews * BADGE_POINT_WEIGHTS.secondaryReview,
+          role: rolePoints,
+          reputation: reputationBonus,
+        },
+      });
+    } catch (error) {
+      console.error("Error syncing badge progress:", error);
+    } finally {
+      setBadgeLoading(false);
+    }
+  }, [profile, user, userRoles]);
+
+  useEffect(() => {
+    if (!user || !profile || !userRolesLoaded) {
+      return;
+    }
+
+    loadBadgeProgress();
+  }, [user, profile, userRoles, userRolesLoaded, loadBadgeProgress]);
+
+  const handleTriggerFinalProof = async () => {
+    if (!user || !userRequest) {
+      return;
+    }
+
+    if (userRequest.status !== "verified") {
+      toast({
+        title: "Hang tight",
+        description: "Final proof unlocks once validators finish their review.",
+      });
+      return;
+    }
+
+    // setFinalizingProof(true);
+
+    try {
+      const payload = `${user.id}:${userRequest.id}:${Date.now()}`;
+      let proofHash = payload;
+
+      console.log("Generating proof hash from payload:", payload);
+
+      if (globalThis.crypto?.subtle) {
+        const encoded = new TextEncoder().encode(payload);
+        const buffer = await globalThis.crypto.subtle.digest(
+          "SHA-256",
+          encoded
+        );
+        proofHash = Array.from(new Uint8Array(buffer))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+      } else if (globalThis.crypto?.randomUUID) {
+        proofHash = globalThis.crypto.randomUUID().replace(/-/g, "");
+      }
+
+      console.log("Submitting identity proof with hash:", proofHash);
+
+      const { txHash } = await submitProof({
+        applicantHash: proofHash,
+        score: userRequest.final_score || 0,
+        reviewerSignatures: userRequest.reviewer_signatures || [],
+      });
+
+      console.log("Submitted identity proof, tx hash:", txHash);
+
+      // const { error } = await supabase
+      //   .from("profiles")
+      //   .update({
+      //     verification_status: "verified",
+      //     blockchain_proof_hash: proofHash,
+      //     verification_score:
+      //       userRequest.final_score ?? profile?.verification_score,
+      //   })
+      //   .eq("id", user.id);
+
+      // if (error) throw error;
+
+      // await loadProfile();
+      // toast({
+      //   title: "Final proof triggered",
+      //   description: `Transaction submitted: ${txHash}`,
+      // });
+    } catch (error) {
+      console.error("Error triggering final proof:", error);
+      toast({
+        title: "Unable to trigger proof",
+        description: "Please try again shortly.",
+        variant: "destructive",
+      });
+    } finally {
+      setFinalizingProof(false);
+    }
+  };
+
   const getStatusIcon = (status: string) => {
     switch (status) {
       case "verified":
@@ -278,6 +592,13 @@ const Dashboard = () => {
       default:
         return "bg-muted text-muted-foreground border-border";
     }
+  };
+
+  const formatReviewTimestamp = (value?: string | null) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleString();
   };
 
   const aiComplete = Boolean(
@@ -321,7 +642,45 @@ const Dashboard = () => {
     return profileStatus;
   }, [profileStatus, requestDerivedStatus]);
 
-  const finalComplete = verificationStatus === "verified";
+  const finalProofComplete = Boolean(profile?.blockchain_proof_hash);
+  const canTriggerFinalProof = Boolean(
+    secondaryComplete &&
+      !finalProofComplete &&
+      userRequest?.status === "verified"
+  );
+  const eligibleForSecondaryValidatorRole =
+    verificationStatus === "verified" &&
+    !userRoles.includes("secondary_validator") &&
+    !userRoles.includes("primary_validator") &&
+    !userRoles.includes("admin");
+  const primaryReviewAvailable = Boolean(
+    userRequest?.primary_validated_at || userRequest?.primary_validator_notes
+  );
+  const secondaryReviewAvailable = Boolean(
+    userRequest?.secondary_validated_at ||
+      userRequest?.secondary_validator_notes ||
+      typeof userRequest?.final_score === "number"
+  );
+  const primaryReviewTimestamp = formatReviewTimestamp(
+    userRequest?.primary_validated_at
+  );
+  const secondaryReviewTimestamp = formatReviewTimestamp(
+    userRequest?.secondary_validated_at
+  );
+
+  const badgeTheme =
+    badgeStats && BADGE_THEMES[badgeStats.level]
+      ? BADGE_THEMES[badgeStats.level]
+      : DEFAULT_BADGE_THEME;
+
+  const activeBadgeRoles = useMemo(() => {
+    const labels: string[] = [];
+    if (userRoles.includes("primary_validator"))
+      labels.push("Primary validator");
+    if (userRoles.includes("secondary_validator"))
+      labels.push("Secondary validator");
+    return labels.length ? labels.join(" + ") : "Citizen";
+  }, [userRoles]);
 
   const progressSteps = [
     {
@@ -352,11 +711,124 @@ const Dashboard = () => {
     {
       title: "Final proof",
       description: "Cardano hash + profile badge",
-      statusText: finalComplete ? "Minted" : "Pending",
-      complete: finalComplete,
+      statusText: finalProofComplete ? "Minted" : "Pending",
+      complete: finalProofComplete,
       icon: <CheckCircle className="w-5 h-5" />,
     },
   ];
+
+  const validatorFeedbackSection =
+    userRequest && (primaryReviewAvailable || secondaryReviewAvailable) ? (
+      <div className="space-y-3">
+        <p className="text-sm font-semibold text-muted-foreground">
+          Validator feedback
+        </p>
+        <div className="space-y-3">
+          {primaryReviewAvailable && (
+            <div className="rounded-xl border border-border/60 bg-card/60 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-foreground">
+                    Primary validator
+                  </p>
+                  {primaryReviewTimestamp && (
+                    <p className="text-xs text-muted-foreground">
+                      Reviewed {primaryReviewTimestamp}
+                    </p>
+                  )}
+                </div>
+                <Badge
+                  variant="outline"
+                  className={
+                    primaryComplete
+                      ? "border-green-500/50 text-green-600"
+                      : "text-muted-foreground"
+                  }
+                >
+                  {primaryComplete ? "Cleared" : "Feedback posted"}
+                </Badge>
+              </div>
+              <div className="mt-3 grid gap-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Character</span>
+                  <span className="font-medium">
+                    {userRequest.character_level || "—"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Address rating</span>
+                  <span className="font-medium">
+                    {userRequest.address_rating || "—"}
+                  </span>
+                </div>
+              </div>
+              {userRequest.primary_validator_notes && (
+                <p className="mt-3 text-sm text-muted-foreground whitespace-pre-line">
+                  {userRequest.primary_validator_notes}
+                </p>
+              )}
+            </div>
+          )}
+          {secondaryReviewAvailable && (
+            <div className="rounded-xl border border-border/60 bg-card/60 p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-foreground">
+                    Secondary validator
+                  </p>
+                  {secondaryReviewTimestamp && (
+                    <p className="text-xs text-muted-foreground">
+                      Reviewed {secondaryReviewTimestamp}
+                    </p>
+                  )}
+                </div>
+                <Badge
+                  variant="outline"
+                  className={
+                    secondaryComplete
+                      ? "border-green-500/50 text-green-600"
+                      : "text-muted-foreground"
+                  }
+                >
+                  {secondaryComplete ? "Cleared" : "Awaiting proof"}
+                </Badge>
+              </div>
+              <div className="mt-3 grid gap-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Social proof</span>
+                  <span className="font-medium">
+                    {typeof userRequest.social_proof_score === "number"
+                      ? `${userRequest.social_proof_score}%`
+                      : "—"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Reputation</span>
+                  <span className="font-medium">
+                    {typeof userRequest.reputation_score === "number"
+                      ? `${userRequest.reputation_score}%`
+                      : "—"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Final score</span>
+                  <span className="font-medium">
+                    {typeof userRequest.final_score === "number"
+                      ? `${userRequest.final_score}%`
+                      : "—"}
+                  </span>
+                </div>
+              </div>
+              {userRequest.secondary_validator_notes && (
+                <p className="mt-3 text-sm text-muted-foreground whitespace-pre-line">
+                  {userRequest.secondary_validator_notes}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    ) : null;
 
   if (loading || profileLoading) {
     return (
@@ -450,6 +922,182 @@ const Dashboard = () => {
               </CardContent>
             )}
           </Card>
+
+          {/* Badge Evolution */}
+          <Card className="relative overflow-hidden border-primary/30 bg-card/80 shadow-lg">
+            <div
+              className={`absolute inset-0 bg-gradient-to-br ${badgeTheme.glow} opacity-70 pointer-events-none`}
+            />
+            <CardHeader className="relative z-10">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                    Badge evolution
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <Badge
+                      className={`${badgeTheme.pill} text-xs tracking-wide uppercase`}
+                    >
+                      Level {badgeStats?.level ?? 0}
+                    </Badge>
+                    <div>
+                      <p className="text-xl font-bold text-foreground">
+                        {badgeStats?.title ?? "New Member"}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {badgeStats?.description ||
+                          "Complete verification to unlock your first badge."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex flex-col items-end gap-2 text-right">
+                  <Award className={`w-8 h-8 ${badgeTheme.accent}`} />
+                  <Badge
+                    variant="outline"
+                    className="bg-background/70 border-border/50"
+                  >
+                    {badgeStats?.points ?? 0} pts earned
+                  </Badge>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="relative z-10 space-y-5">
+              {badgeLoading || !badgeStats ? (
+                <div className="space-y-4 animate-pulse">
+                  <div className="h-3 w-full rounded-full bg-muted" />
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {[0, 1, 2, 3].map((key) => (
+                      <div key={key} className="h-20 rounded-xl bg-muted" />
+                    ))}
+                  </div>
+                  <div className="h-16 rounded-xl bg-muted" />
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <div className="flex items-center justify-between text-sm text-muted-foreground">
+                      <span>
+                        {badgeStats.nextTitle
+                          ? `Next: ${badgeStats.nextTitle}`
+                          : "You reached the final tier"}
+                      </span>
+                      <span>{badgeStats.progress}%</span>
+                    </div>
+                    <div className="mt-2 h-3 w-full overflow-hidden rounded-full bg-muted">
+                      <div
+                        className="h-full rounded-full bg-gradient-to-r from-primary via-secondary to-primary"
+                        style={{ width: `${badgeStats.progress}%` }}
+                      />
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Base trust +{badgeStats.breakdown.base} pts • Total{" "}
+                      {badgeStats.points} pts
+                      {badgeStats.nextTitle
+                        ? ` • ${badgeStats.pointsToNext} pts to ${badgeStats.nextTitle}`
+                        : ""}
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-xl border border-border/60 bg-background/80 p-4">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">
+                        Primary reviews
+                      </p>
+                      <p className="mt-1 text-2xl font-bold text-foreground">
+                        {badgeStats.counts.primaryReviews}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        +{badgeStats.breakdown.primary} pts
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-background/80 p-4">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">
+                        Secondary reviews
+                      </p>
+                      <p className="mt-1 text-2xl font-bold text-foreground">
+                        {badgeStats.counts.secondaryReviews}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        +{badgeStats.breakdown.secondary} pts
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-background/80 p-4">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">
+                        Role bonus
+                      </p>
+                      <p className="mt-1 text-lg font-semibold text-foreground">
+                        {activeBadgeRoles}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        +{badgeStats.breakdown.role} pts
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-border/60 bg-background/80 p-4">
+                      <p className="text-xs font-semibold uppercase text-muted-foreground">
+                        Reputation boost
+                      </p>
+                      <p className="mt-1 text-2xl font-bold text-foreground">
+                        {profile?.verification_score ?? 0}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        +{badgeStats.breakdown.reputation} pts
+                      </p>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-4">
+                    <div className="flex items-start gap-3 text-sm text-muted-foreground">
+                      <Sparkles className="mt-0.5 h-4 w-4 text-primary" />
+                      <div>
+                        <p className="font-semibold text-foreground">
+                          {badgeStats.title}
+                        </p>
+                        <p>{badgeStats.mantra}</p>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {eligibleForSecondaryValidatorRole && (
+            <Card className="border-emerald-500/40 bg-emerald-500/5 shadow-lg">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-emerald-700">
+                  <Users className="w-5 h-5" />
+                  Help with secondary reviews
+                </CardTitle>
+                <CardDescription>
+                  You are fully verified. Volunteer a few minutes to review
+                  neighbors and keep the network trustworthy.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex flex-col gap-4">
+                  <p className="text-sm text-muted-foreground">
+                    We will show you anonymized dossiers needing a second set of
+                    eyes. Each completed review strengthens your own reputation
+                    score.
+                  </p>
+                  <Button
+                    size="lg"
+                    className="w-full"
+                    onClick={handleJoinSecondaryValidatorPool}
+                    disabled={joiningSecondaryPool}
+                  >
+                    {joiningSecondaryPool ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Enrolling…
+                      </>
+                    ) : (
+                      "Start reviewing identities"
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
           {/* Validator Dashboard Access */}
           {(userRoles.includes("primary_validator") ||
@@ -643,10 +1291,30 @@ const Dashboard = () => {
                                   {step.statusText}
                                 </Badge>
                               </div>
+                              {step.title === "Final proof" &&
+                                canTriggerFinalProof && (
+                                  <div className="mt-3 flex justify-end">
+                                    <Button
+                                      size="sm"
+                                      onClick={handleTriggerFinalProof}
+                                      disabled={finalizingProof}
+                                    >
+                                      {finalizingProof ? (
+                                        <>
+                                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                          Triggering...
+                                        </>
+                                      ) : (
+                                        "Trigger final proof"
+                                      )}
+                                    </Button>
+                                  </div>
+                                )}
                             </div>
                           </div>
                         ))}
                       </div>
+                      {validatorFeedbackSection}
                     </div>
                   )}
                 </div>
@@ -664,6 +1332,23 @@ const Dashboard = () => {
                     Your identity has been verified and your proof is stored on
                     the Cardano blockchain.
                   </p>
+                  {!finalProofComplete && canTriggerFinalProof && (
+                    <div className="mt-4 flex justify-center">
+                      <Button
+                        onClick={handleTriggerFinalProof}
+                        disabled={finalizingProof}
+                      >
+                        {finalizingProof ? (
+                          <>
+                            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                            Triggering...
+                          </>
+                        ) : (
+                          "Trigger final proof"
+                        )}
+                      </Button>
+                    </div>
+                  )}
                   {profile?.blockchain_proof_hash && (
                     <div className="bg-muted rounded-lg p-4 max-w-md mx-auto">
                       <p className="text-xs text-muted-foreground mb-1">
@@ -672,6 +1357,11 @@ const Dashboard = () => {
                       <code className="text-xs font-mono break-all">
                         {profile.blockchain_proof_hash}
                       </code>
+                    </div>
+                  )}
+                  {validatorFeedbackSection && (
+                    <div className="mt-8 text-left">
+                      {validatorFeedbackSection}
                     </div>
                   )}
                 </div>

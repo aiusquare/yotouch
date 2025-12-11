@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import { Camera, CheckCircle, Loader2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
+import { fetchNinRecord, NinRecord } from "@/lib/identity";
 
 const ADDRESS_CLARITY_OPTIONS = [
   "Street & house number",
@@ -50,6 +51,9 @@ const FacialVerification = () => {
   const [profile, setProfile] = useState<ProfileRecord | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
+  const [ninRecord, setNinRecord] = useState<NinRecord | null>(null);
+  const [ninLookupLoading, setNinLookupLoading] = useState(false);
+  const [ninLookupError, setNinLookupError] = useState<string | null>(null);
   const [hasConfirmedRecords, setHasConfirmedRecords] = useState(false);
   const [savingRecords, setSavingRecords] = useState(false);
   const [syncIssue, setSyncIssue] = useState<string | null>(null);
@@ -66,8 +70,26 @@ const FacialVerification = () => {
     null
   );
   const [addressHydrated, setAddressHydrated] = useState(false);
+  const lastNinLookup = useRef<string | null>(null);
 
   type Stage = "records" | "facial" | "address" | "submitted";
+
+  const formatDate = (value: string | null) => {
+    if (!value) {
+      return "Not provided";
+    }
+
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return value;
+    }
+
+    return parsed.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+    });
+  };
 
   const stageOrder: Stage[] = ["records", "facial", "address", "submitted"];
 
@@ -169,6 +191,54 @@ const FacialVerification = () => {
 
     loadProfile();
   }, [user]);
+
+  useEffect(() => {
+    if (!profile?.nin) {
+      setNinRecord(null);
+      setNinLookupError(null);
+      setNinLookupLoading(false);
+      lastNinLookup.current = null;
+      return;
+    }
+
+    if (lastNinLookup.current === profile.nin) {
+      return;
+    }
+
+    let cancelled = false;
+    setNinLookupLoading(true);
+    setNinLookupError(null);
+
+    fetchNinRecord(profile.nin)
+      .then((record) => {
+        if (cancelled) {
+          return;
+        }
+        setNinRecord(record);
+        lastNinLookup.current = profile.nin;
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        console.error("Error fetching NIN snapshot", error);
+        const message =
+          error instanceof Error
+            ? error.message
+            : "We couldn't retrieve your NIN record";
+        setNinLookupError(message);
+        setNinRecord(null);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setNinLookupLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.nin]);
 
   useEffect(() => {
     if (!user) return;
@@ -485,6 +555,17 @@ const FacialVerification = () => {
       toast.error("NIN and BVN details are required before continuing.");
       return;
     }
+    const monnifySnapshot = ninRecord
+      ? {
+          nin: ninRecord.nin,
+          firstName: ninRecord.firstName,
+          middleName: ninRecord.middleName,
+          lastName: ninRecord.lastName,
+          dateOfBirth: ninRecord.dateOfBirth,
+          gender: ninRecord.gender,
+          phoneNumber: ninRecord.phoneNumber,
+        }
+      : undefined;
     setSavingRecords(true);
     try {
       await persistVerificationRequest({
@@ -492,6 +573,7 @@ const FacialVerification = () => {
           nin: profile.nin,
           bvn: profile.bvn,
           confirmed_at: new Date().toISOString(),
+          monnify_snapshot: monnifySnapshot,
         }),
       });
       setHasConfirmedRecords(true);
@@ -540,34 +622,86 @@ const FacialVerification = () => {
             ) : fetchError ? (
               <p className="text-sm text-destructive">{fetchError}</p>
             ) : profile ? (
-              <dl className="grid gap-3 text-sm md:grid-cols-2">
-                <div>
-                  <dt className="text-muted-foreground">Full name</dt>
-                  <dd className="font-semibold text-foreground">
-                    {[profile.first_name, profile.last_name]
-                      .filter(Boolean)
-                      .join(" ") || "—"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">NIN</dt>
-                  <dd className="font-mono text-base">
-                    {profile.nin || "Not provided"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">BVN</dt>
-                  <dd className="font-mono text-base">
-                    {profile.bvn || "Not provided"}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-muted-foreground">Residential address</dt>
-                  <dd className="text-foreground">
-                    {profile.residential_address || "Not provided"}
-                  </dd>
-                </div>
-              </dl>
+              <>
+                <dl className="grid gap-3 text-sm md:grid-cols-2">
+                  <div>
+                    <dt className="text-muted-foreground">Full name</dt>
+                    <dd className="font-semibold text-foreground">
+                      {[profile.first_name, profile.last_name]
+                        .filter(Boolean)
+                        .join(" ") || "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">NIN</dt>
+                    <dd className="font-mono text-base">
+                      {profile.nin || "Not provided"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">BVN</dt>
+                    <dd className="font-mono text-base">
+                      {profile.bvn || "Not provided"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">Residential address</dt>
+                    <dd className="text-foreground">
+                      {profile.residential_address || "Not provided"}
+                    </dd>
+                  </div>
+                </dl>
+                {profile.nin && (
+                  <div className="mt-5 space-y-2">
+                    <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">
+                      Monnify snapshot (minimal fields)
+                    </p>
+                    <div className="rounded-2xl border border-border/70 bg-background/40 p-4">
+                      {ninLookupLoading ? (
+                        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Contacting Monnify…
+                        </div>
+                      ) : ninLookupError ? (
+                        <p className="text-sm text-destructive">{ninLookupError}</p>
+                      ) : ninRecord ? (
+                        <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                          <div>
+                            <dt className="text-muted-foreground">Verified name</dt>
+                            <dd className="font-medium text-foreground">
+                              {[ninRecord.firstName, ninRecord.lastName]
+                                .filter(Boolean)
+                                .join(" ") || "Unavailable"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground">Date of birth</dt>
+                            <dd className="text-foreground">
+                              {formatDate(ninRecord.dateOfBirth)}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground">Gender</dt>
+                            <dd className="text-foreground">
+                              {ninRecord.gender || "Not provided"}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt className="text-muted-foreground">Phone</dt>
+                            <dd className="text-foreground">
+                              {ninRecord.phoneNumber || "Not provided"}
+                            </dd>
+                          </div>
+                        </dl>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">
+                          We'll display the minimal Monnify fields once your record is retrieved.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </>
             ) : (
               <p className="text-sm text-muted-foreground">
                 No profile data found.

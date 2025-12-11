@@ -176,6 +176,10 @@ PORT=8080
 DATABASE_URL=postgres://postgres:postgres@localhost:5432/yotouch
 CARDANO_WEBHOOK_URL=http://localhost:5050/proofs
 AI_SERVICE_URL=http://localhost:9000
+MONNIFY_BASE_URL=https://sandbox.monnify.com
+MONNIFY_API_KEY=your_api_key
+MONNIFY_SECRET_KEY=your_secret_key
+MONNIFY_CONTRACT_CODE=your_contract_code
 ```
 
 ### AI Service

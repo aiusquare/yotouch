@@ -17,4 +17,9 @@ export const env = {
     "https://cardano-preprod.blockfrost.io/api/v0",
   BLOCKFROST_PROJECT_ID: process.env.BLOCKFROST_PROJECT_ID,
   CARDANO_SIGNING_KEY: process.env.CARDANO_SIGNING_KEY,
+  MONNIFY_BASE_URL:
+    process.env.MONNIFY_BASE_URL ?? "https://sandbox.monnify.com",
+  MONNIFY_API_KEY: process.env.MONNIFY_API_KEY,
+  MONNIFY_SECRET_KEY: process.env.MONNIFY_SECRET_KEY,
+  MONNIFY_CONTRACT_CODE: process.env.MONNIFY_CONTRACT_CODE,
 };

@@ -41,9 +41,40 @@ export function createBlockfrostClient(): BlockfrostClient {
   });
 }
 
-export async function fetchProtocolParameters(client: BlockfrostClient) {
-  const response = await client.get("/epochs/latest/parameters");
-  return response.data as BlockfrostProtocolParameters;
+export async function fetchProtocolParameters(
+  client: BlockfrostClient
+): Promise<BlockfrostProtocolParameters> {
+  const maxRetries = 3;
+  const baseDelay = 1000; // 1 second
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await client.get("/epochs/latest/parameters");
+      return response.data as BlockfrostProtocolParameters;
+    } catch (error: any) {
+      const isLastAttempt = attempt === maxRetries - 1;
+      const isTransientError =
+        error.code === "ECONNRESET" ||
+        error.code === "ENOTFOUND" ||
+        error.code === "ETIMEDOUT" ||
+        error.response?.status >= 500;
+
+      if (!isTransientError || isLastAttempt) {
+        throw error;
+      }
+
+      // Exponential backoff: 1s, 2s, 4s
+      const delay = baseDelay * Math.pow(2, attempt);
+      console.log(
+        `Blockfrost request failed (attempt ${
+          attempt + 1
+        }/${maxRetries}), retrying in ${delay}ms...`
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw new Error("Failed to fetch protocol parameters after retries");
 }
 
 export async function fetchWalletUtxos(

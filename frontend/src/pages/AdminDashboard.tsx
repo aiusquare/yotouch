@@ -23,6 +23,23 @@ import {
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Loader2,
   Shield,
@@ -67,6 +84,15 @@ interface FieldAgentProfile {
     last_name: string | null;
     phone_number: string | null;
   } | null;
+}
+
+interface ProfileSummary {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  phone_number: string | null;
+  nin: string | null;
+  verification_status: string | null;
 }
 
 interface PrimaryValidatorApplication {
@@ -158,6 +184,24 @@ const AdminDashboard = () => {
     useState<PrimaryValidatorApplication | null>(null);
   const [search, setSearch] = useState("");
   const [statusUpdating, setStatusUpdating] = useState(false);
+  const [createAgentOpen, setCreateAgentOpen] = useState(false);
+  const [agentSearchTerm, setAgentSearchTerm] = useState("");
+  const [agentSearchResults, setAgentSearchResults] = useState<
+    ProfileSummary[]
+  >([]);
+  const [agentSearchLoading, setAgentSearchLoading] = useState(false);
+  const [selectedAgentCandidate, setSelectedAgentCandidate] =
+    useState<ProfileSummary | null>(null);
+  const [agentCoverageArea, setAgentCoverageArea] = useState("");
+  const [agentTier, setAgentTier] = useState<
+    "community" | "regional" | "national"
+  >("community");
+  const [agentMaxValidators, setAgentMaxValidators] = useState("15");
+  const [agentNotes, setAgentNotes] = useState("");
+  const [creatingAgent, setCreatingAgent] = useState(false);
+  const [walletUtxoCount, setWalletUtxoCount] = useState(0);
+  const [walletBalance, setWalletBalance] = useState(0);
+  const [walletLoading, setWalletLoading] = useState(false);
 
   useEffect(() => {
     if (!user) {
@@ -195,6 +239,31 @@ const AdminDashboard = () => {
     verifyRole();
   }, [user, navigate]);
 
+  const fetchWalletUtxos = async () => {
+    try {
+      setWalletLoading(true);
+      const [utxoRes, balanceRes] = await Promise.all([
+        fetch("/api/wallet/utxo-count"),
+        fetch("/api/wallet/balance"),
+      ]);
+
+      if (!utxoRes.ok) throw new Error("Failed to fetch UTXO count");
+      if (!balanceRes.ok) throw new Error("Failed to fetch balance");
+
+      const utxoData = await utxoRes.json();
+      const balanceData = await balanceRes.json();
+
+      setWalletUtxoCount(utxoData.utxoCount);
+      setWalletBalance(balanceData.balanceAda);
+    } catch (error) {
+      console.error("Error fetching wallet data:", error);
+      setWalletUtxoCount(0);
+      setWalletBalance(0);
+    } finally {
+      setWalletLoading(false);
+    }
+  };
+
   const loadDashboard = useCallback(async (showLoader = true) => {
     try {
       if (showLoader) setLoading(true);
@@ -211,6 +280,7 @@ const AdminDashboard = () => {
         fetchValidatorApplications(),
         countByRole("field_agent"),
         countByRole("primary_validator"),
+        fetchWalletUtxos(),
       ]);
 
       setMetrics({
@@ -419,6 +489,11 @@ const AdminDashboard = () => {
     return map;
   }, [applications]);
 
+  const existingAgentIds = useMemo(
+    () => new Set(fieldAgents.map((agent) => agent.agent_id)),
+    [fieldAgents]
+  );
+
   const filteredApplications = useMemo(() => {
     if (!search) return applications;
     return applications.filter(
@@ -447,6 +522,120 @@ const AdminDashboard = () => {
       toast.error("Unable to update application status");
     } finally {
       setStatusUpdating(false);
+    }
+  };
+
+  const resetAgentForm = useCallback(() => {
+    setAgentSearchTerm("");
+    setAgentSearchResults([]);
+    setSelectedAgentCandidate(null);
+    setAgentCoverageArea("");
+    setAgentTier("community");
+    setAgentMaxValidators("15");
+    setAgentNotes("");
+    setAgentSearchLoading(false);
+  }, []);
+
+  const handleAgentDialogChange = useCallback(
+    (open: boolean) => {
+      setCreateAgentOpen(open);
+      if (!open) {
+        resetAgentForm();
+      }
+    },
+    [resetAgentForm]
+  );
+
+  const fetchProfileCandidates = useCallback(async (term: string) => {
+    const sanitized = term.replace(/[%]/g, "").replace(/,/g, "");
+    if (!sanitized) {
+      setAgentSearchResults([]);
+      return;
+    }
+
+    try {
+      setAgentSearchLoading(true);
+      const pattern = `%${sanitized}%`;
+      const { data, error } = await supabase
+        .from("profiles")
+        .select(
+          "id, first_name, last_name, phone_number, nin, verification_status"
+        )
+        .or(
+          `first_name.ilike.${pattern},last_name.ilike.${pattern},phone_number.ilike.${pattern},nin.ilike.${pattern}`
+        )
+        .limit(10);
+
+      if (error) throw error;
+      setAgentSearchResults(data ?? []);
+    } catch (error) {
+      console.error("Failed to search profiles", error);
+      toast.error("Unable to search profiles");
+    } finally {
+      setAgentSearchLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!createAgentOpen) return;
+    const query = agentSearchTerm.trim();
+
+    if (query.length < 2) {
+      setAgentSearchLoading(false);
+      setAgentSearchResults([]);
+      return;
+    }
+
+    const handler = setTimeout(() => {
+      fetchProfileCandidates(query);
+    }, 400);
+
+    return () => clearTimeout(handler);
+  }, [agentSearchTerm, createAgentOpen, fetchProfileCandidates]);
+
+  const handleCreateAgent = async () => {
+    if (!selectedAgentCandidate) {
+      toast.error("Select a profile to promote");
+      return;
+    }
+
+    try {
+      setCreatingAgent(true);
+      const maxValidatorsValue = Math.max(0, Number(agentMaxValidators) || 0);
+
+      const { error: roleError } = await supabase.from("user_roles").upsert(
+        {
+          user_id: selectedAgentCandidate.id,
+          role: "field_agent",
+        },
+        { onConflict: "user_id,role" }
+      );
+
+      if (roleError) throw roleError;
+
+      const { error: profileError } = await supabase
+        .from("field_agent_profiles")
+        .upsert(
+          {
+            agent_id: selectedAgentCandidate.id,
+            coverage_area: agentCoverageArea || null,
+            tier: agentTier,
+            notes: agentNotes || null,
+            max_primary_validators: maxValidatorsValue,
+          },
+          { onConflict: "agent_id" }
+        );
+
+      if (profileError) throw profileError;
+
+      toast.success("Field agent created");
+      handleAgentDialogChange(false);
+      await loadDashboard(false);
+    } catch (error) {
+      console.error("Failed to create field agent", error);
+      toast.error("Unable to create field agent");
+    } finally {
+      setCreatingAgent(false);
     }
   };
 
@@ -553,15 +742,78 @@ const AdminDashboard = () => {
               </CardContent>
             </Card>
           ))}
+          <Card className="border-border/50 bg-card/80 text-foreground shadow-lg">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">
+                    Backend wallet UTXOs
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Available for transactions
+                  </p>
+                </div>
+                <div className="p-2 rounded-xl bg-gradient-to-br from-blue-500/20 to-cyan-500/10">
+                  <ClipboardList className="h-5 w-5" />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-4xl font-semibold text-foreground">
+                {walletLoading ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
+                  walletUtxoCount
+                )}
+              </p>
+            </CardContent>
+          </Card>
+          <Card className="border-border/50 bg-card/80 text-foreground shadow-lg">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-base">
+                    Backend wallet balance
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground">
+                    Total ADA available
+                  </p>
+                </div>
+                <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/10">
+                  <Award className="h-5 w-5" />
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="text-4xl font-semibold text-foreground">
+                {walletLoading ? (
+                  <Loader2 className="h-6 w-6 animate-spin" />
+                ) : (
+                  <>{walletBalance.toFixed(2)} ₳</>
+                )}
+              </p>
+            </CardContent>
+          </Card>
         </section>
 
         <section className="grid gap-6 lg:grid-cols-[1.4fr,1fr]">
           <Card className="border-border/50 bg-card/80">
             <CardHeader>
-              <CardTitle>Field agent performance</CardTitle>
-              <CardDescription>
-                Coverage, intake velocity, and conversion rates
-              </CardDescription>
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Field agent performance</CardTitle>
+                  <CardDescription>
+                    Coverage, intake velocity, and conversion rates
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleAgentDialogChange(true)}
+                >
+                  Add field agent
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[300px] pr-4">
@@ -887,6 +1139,176 @@ const AdminDashboard = () => {
           </Card>
         </section>
       </main>
+
+      <Dialog open={createAgentOpen} onOpenChange={handleAgentDialogChange}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Onboard a field agent</DialogTitle>
+            <DialogDescription>
+              Promote an existing citizen record to field agent and define their
+              operating envelope.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <div className="space-y-2">
+              <Label htmlFor="agent-search">Find profile</Label>
+              <Input
+                id="agent-search"
+                placeholder="Search by name, phone, or NIN"
+                value={agentSearchTerm}
+                onChange={(event) => setAgentSearchTerm(event.target.value)}
+              />
+            </div>
+
+            <div className="rounded-2xl border border-border/60 bg-muted/20">
+              {agentSearchLoading ? (
+                <div className="flex items-center justify-center gap-2 py-6 text-sm text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Searching
+                  profiles…
+                </div>
+              ) : agentSearchResults.length ? (
+                <ScrollArea className="max-h-56">
+                  <div className="divide-y divide-border/50">
+                    {agentSearchResults.map((profile) => {
+                      const alreadyAgent = existingAgentIds.has(profile.id);
+                      const isSelected =
+                        selectedAgentCandidate?.id === profile.id;
+                      return (
+                        <button
+                          type="button"
+                          key={profile.id}
+                          disabled={alreadyAgent}
+                          onClick={() => setSelectedAgentCandidate(profile)}
+                          className={cn(
+                            "flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition",
+                            isSelected
+                              ? "border-l-2 border-primary bg-primary/10"
+                              : "hover:bg-muted/50",
+                            alreadyAgent &&
+                              "cursor-not-allowed opacity-50 hover:bg-transparent"
+                          )}
+                        >
+                          <div>
+                            <p className="font-semibold">
+                              {profile.first_name || "Unnamed"}{" "}
+                              {profile.last_name || ""}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {profile.phone_number || "No phone"} · NIN{" "}
+                              {profile.nin || "N/A"}
+                            </p>
+                          </div>
+                          <Badge
+                            variant={isSelected ? "default" : "outline"}
+                            className="text-xs uppercase"
+                          >
+                            {alreadyAgent
+                              ? "Active agent"
+                              : isSelected
+                              ? "Selected"
+                              : profile.verification_status || "Available"}
+                          </Badge>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </ScrollArea>
+              ) : (
+                <p className="px-4 py-6 text-center text-sm text-muted-foreground">
+                  {agentSearchTerm.trim().length < 2
+                    ? "Enter at least 2 characters to search all profiles."
+                    : "No matching profiles. Ask the user to complete sign-up."}
+                </p>
+              )}
+            </div>
+
+            {selectedAgentCandidate && (
+              <div className="rounded-xl border border-primary/40 bg-primary/5 p-4 text-sm">
+                <p className="font-semibold">
+                  Assigning {selectedAgentCandidate.first_name || ""}{" "}
+                  {selectedAgentCandidate.last_name || ""}
+                </p>
+                <p className="text-muted-foreground">
+                  Verification status:{" "}
+                  {selectedAgentCandidate.verification_status || "unknown"}
+                </p>
+              </div>
+            )}
+
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="agent-coverage">Coverage area</Label>
+                <Input
+                  id="agent-coverage"
+                  placeholder="e.g. Mainland, Lagos"
+                  value={agentCoverageArea}
+                  onChange={(event) => setAgentCoverageArea(event.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="agent-tier">Tier</Label>
+                <Select
+                  value={agentTier}
+                  onValueChange={(value) =>
+                    setAgentTier(value as "community" | "regional" | "national")
+                  }
+                >
+                  <SelectTrigger id="agent-tier">
+                    <SelectValue placeholder="Select tier" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="community">Community</SelectItem>
+                    <SelectItem value="regional">Regional</SelectItem>
+                    <SelectItem value="national">National</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="agent-max">Maximum primary validators</Label>
+              <Input
+                id="agent-max"
+                type="number"
+                min={0}
+                value={agentMaxValidators}
+                onChange={(event) => setAgentMaxValidators(event.target.value)}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="agent-notes">Ops notes</Label>
+              <Textarea
+                id="agent-notes"
+                rows={3}
+                placeholder="Provide context, handoff details, or commitments"
+                value={agentNotes}
+                onChange={(event) => setAgentNotes(event.target.value)}
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => handleAgentDialogChange(false)}
+              disabled={creatingAgent}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateAgent}
+              disabled={!selectedAgentCandidate || creatingAgent}
+            >
+              {creatingAgent && (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              )}
+              Create field agent
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

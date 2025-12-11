@@ -22,7 +22,6 @@ import {
 
 const MIN_PROOF_LOVELACE = 1_500_000n;
 
-// Gathers wallet inputs once so the builder logic stays focused on composition.
 async function loadWalletContext(client: BlockfrostClient) {
   const networkId = resolveNetworkId();
   const privateKey = getPrivateKey();

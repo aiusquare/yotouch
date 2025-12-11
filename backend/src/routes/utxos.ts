@@ -1,7 +1,7 @@
 import { Router } from "express";
 import {
-	createIdentity,
-	getNinRecord,
+    createIdentity,
+    getNinRecord,
 } from "../controllers/identityController.js";
 
 export const onboardingRouter = Router();

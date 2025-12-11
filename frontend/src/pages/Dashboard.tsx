@@ -121,6 +121,7 @@ const Dashboard = () => {
   const [joiningSecondaryPool, setJoiningSecondaryPool] = useState(false);
   const [badgeStats, setBadgeStats] = useState<BadgeStats | null>(null);
   const [badgeLoading, setBadgeLoading] = useState(false);
+  const [badgeMinting, setBadgeMinting] = useState(false);
   const [userRolesLoaded, setUserRolesLoaded] = useState(false);
 
   useEffect(() => {
@@ -441,11 +442,11 @@ const Dashboard = () => {
       const storedLevel = profile.badge_level ?? 0;
       const storedPoints = profile.badge_points ?? 0;
 
-      if (storedLevel !== current.level || storedPoints !== totalPoints) {
+      // Only update badge_points and timestamp; badge_level updates after blockchain mint
+      if (storedPoints !== totalPoints) {
         const { data, error } = await supabase
           .from("profiles")
           .update({
-            badge_level: current.level,
             badge_points: totalPoints,
             badge_last_updated_at: new Date().toISOString(),
           })
@@ -565,6 +566,87 @@ const Dashboard = () => {
       });
     } finally {
       setFinalizingProof(false);
+    }
+  };
+
+  const handleBadgeMint = async () => {
+    if (!user?.id) {
+      toast({
+        title: "User not loaded",
+        description: "Please refresh and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setBadgeMinting(true);
+
+    try {
+      const computedLevel = badgeStats?.level ?? 1;
+      const storedLevel = profile?.badge_level ?? 0;
+
+      // Determine action: Init, Upgrade, or Retire
+      const action = storedLevel === 0 ? "Init" : "Upgrade";
+
+      // TODO: Fetch verification key hash from Cardano wallet or stored profile data
+      // For now, we'll use a placeholder; in production, this should come from the user's wallet
+      const ownerVkhHex =
+        (profile as any)?.cardano_vkh ||
+        "0000000000000000000000000000000000000000000000000000000000000000";
+
+      const response = await fetch("/api/badges/mint", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          level: computedLevel,
+          action,
+          ownerVkhHex,
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || "Badge minting failed");
+      }
+
+      const result = await response.json();
+
+      // Update profile with the new badge level if badges are loaded
+      if (profile) {
+        const { data, error } = await supabase
+          .from("profiles")
+          .update({
+            badge_level: computedLevel,
+            badge_last_updated_at: new Date().toISOString(),
+          })
+          .eq("id", user.id)
+          .select("*")
+          .maybeSingle();
+
+        if (error) throw error;
+        if (data) {
+          setProfile(data);
+        }
+      }
+
+      toast({
+        title: "Badge minted successfully!",
+        description: `Minted badge: ${
+          badgeStats?.title || `Level ${computedLevel}`
+        }`,
+      });
+
+      console.log("Badge mint transaction:", result);
+    } catch (error) {
+      console.error("Error minting badge:", error);
+      toast({
+        title: "Badge minting failed",
+        description:
+          error instanceof Error ? error.message : "Please try again shortly.",
+        variant: "destructive",
+      });
+    } finally {
+      setBadgeMinting(false);
     }
   };
 
@@ -857,10 +939,31 @@ const Dashboard = () => {
               <p className="text-xs text-muted-foreground">Dashboard</p>
             </div>
           </div>
-          <Button variant="outline" onClick={signOut}>
-            <LogOut className="w-4 h-4 mr-2" />
-            Sign Out
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleBadgeMint}
+              disabled={badgeMinting}
+              className="mr-2"
+            >
+              {badgeMinting ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Minting...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Dev Mint
+                </>
+              )}
+            </Button>
+            <Button variant="outline" onClick={signOut}>
+              <LogOut className="w-4 h-4 mr-2" />
+              Sign Out
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -959,6 +1062,28 @@ const Dashboard = () => {
                   >
                     {badgeStats?.points ?? 0} pts earned
                   </Badge>
+                  {badgeStats &&
+                    profile &&
+                    badgeStats.level > (profile.badge_level ?? 0) && (
+                      <Button
+                        size="sm"
+                        onClick={handleBadgeMint}
+                        disabled={badgeMinting}
+                        className="mt-2 gap-2"
+                      >
+                        {badgeMinting ? (
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            Minting...
+                          </>
+                        ) : (
+                          <>
+                            <Sparkles className="w-4 h-4" />
+                            Mint Badge
+                          </>
+                        )}
+                      </Button>
+                    )}
                 </div>
               </div>
             </CardHeader>

@@ -1,7 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import validator from "../../../new_frontend/aiken-build/plutus.json" with { type: "json" };
 import { env } from "../config/env.js";
+import { logger } from "./logger.js";
 
 type LucidModule = typeof import("lucid-cardano");
 
@@ -9,7 +9,34 @@ interface CompiledValidator {
   cbor: string;
 }
 
-const compiledValidator = validator as unknown as CompiledValidator;
+function loadCompiledValidatorCbor(): string | null {
+  try {
+    const candidate = path.resolve(
+      process.cwd(),
+      "..",
+      "new_frontend",
+      "aiken-build",
+      "plutus.json"
+    );
+    if (!require("fs").existsSync(candidate)) {
+      logger.warn(`Compiled plutus.json not found at ${candidate}`);
+      return null;
+    }
+    const raw = require("fs").readFileSync(candidate, { encoding: "utf-8" });
+    const bundle = JSON.parse(raw) as any;
+    // Some bundles may expose top-level cbor or validators array; prefer cbor if present
+    if (typeof bundle?.cbor === "string") return bundle.cbor;
+    const first = bundle?.validators?.[0];
+    if (first?.cbor) return first.cbor;
+    logger.warn("No cbor found in compiled plutus.json");
+    return null;
+  } catch (err) {
+    logger.warn({ err }, "Unable to load compiled plutus.json for Lucid");
+    return null;
+  }
+}
+
+const compiledCbor = loadCompiledValidatorCbor();
 
 let lucidModulePromise: Promise<LucidModule> | null = null;
 let lucidPromise: Promise<any> | null = null;
@@ -93,8 +120,14 @@ export async function getLucidInstance() {
 }
 
 export function getValidatorScript() {
+  if (!compiledCbor) {
+    throw new Error(
+      "Compiled validator CBOR not available. Provide new_frontend/aiken-build/plutus.json or compile the policy."
+    );
+  }
+
   return {
     type: "PlutusV2",
-    script: compiledValidator.cbor,
+    script: compiledCbor,
   };
 }

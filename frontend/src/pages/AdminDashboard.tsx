@@ -780,7 +780,7 @@ const AdminDashboard = () => {
                   </p>
                 </div>
                 <div className="p-2 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/10">
-                  <Award className="h-5 w-5" />
+                  {/* <Award className="h-5 w-5" /> */}
                 </div>
               </div>
             </CardHeader>

@@ -1,0 +1,9 @@
+{
+  "validators": [
+    {
+      "title": "identity_validator",
+      "compiledCode": "00"
+    }
+  ],
+  "cbor": "00"
+}

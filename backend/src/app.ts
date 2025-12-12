@@ -13,5 +13,14 @@ app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("dev"));
 
+// Top-level health and root endpoints for quick checks
+app.get("/health", (_req, res) => {
+	res.json({ status: "ok" });
+});
+
+app.get("/", (_req, res) => {
+	res.json({ status: "ok" });
+});
+
 app.use("/api", router);
 app.use(errorHandler);
